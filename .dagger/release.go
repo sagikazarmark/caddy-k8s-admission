@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/sagikazarmark/caddy-k8s-admission/.dagger/internal/dagger"
 )
@@ -43,7 +45,7 @@ func (m *CaddyKubeAdmission) binaries() []*dagger.File {
 	binaries := make([]*dagger.File, 0, len(platforms))
 
 	for _, platform := range platforms {
-		binaries = append(binaries, m.Build("", platform))
+		binaries = append(binaries, m.Build("", platform).WithName(fmt.Sprintf("caddy_%s", strings.ReplaceAll(string(platform), "/", "_"))))
 	}
 
 	return binaries

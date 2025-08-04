@@ -12,8 +12,8 @@ env:
   DAGGER_VERSION: 0.18.14
 
 jobs:
-  dagger:
-    name: Dagger
+  artifacts:
+    name: Artifacts
     runs-on: ubuntu-latest
 
     permissions:
