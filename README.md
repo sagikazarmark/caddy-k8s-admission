@@ -1,8 +1,9 @@
 # Caddy Kubernetes Admission Webhook
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/sagikazarmark/caddy-k8s-admission.svg)](https://pkg.go.dev/github.com/sagikazarmark/caddy-k8s-admission)
-[![Go Report Card](https://goreportcard.com/badge/github.com/sagikazarmark/caddy-k8s-admission)](https://goreportcard.com/report/github.com/sagikazarmark/caddy-k8s-admission)
-[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/sagikazarmark/caddy-k8s-admission/ci.yaml?style=flat-square)](https://github.com/sagikazarmark/caddy-k8s-admission/actions/workflows/ci.yaml)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/sagikazarmark/caddy-k8s-admission/ci.yaml?style=flat-square)
+![Caddy Version](https://img.shields.io/badge/caddy%20version-%3E=2.10.x-61CFDD.svg?style=flat-square)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/sagikazarmark/caddy-k8s-admission?style=flat-square&color=61CFDD)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/sagikazarmark/caddy-k8s-admission/badge?style=flat-square)](https://deps.dev/go/github.com%252Fsagikazarmark%252Fcaddy-k8s-admission)
 
 **Caddy HTTP handler module for Kubernetes admission webhooks.**
 
