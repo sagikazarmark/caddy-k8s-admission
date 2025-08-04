@@ -17,14 +17,14 @@ func (m *CaddyKubeAdmission) Release(ctx context.Context, version string, github
 		Token: githubToken,
 		Repo:  "sagikazarmark/caddy-k8s-admission",
 	}).Release().Create(ctx, version, version, dagger.GhReleaseCreateOpts{
-		Files:         m.releaseAssets(version),
+		Files:         m.releaseAssets(),
 		GenerateNotes: true,
 		Latest:        dagger.GhLatestLatestTrue,
 		VerifyTag:     true,
 	})
 }
 
-func (m *CaddyKubeAdmission) releaseAssets(version string) []*dagger.File {
+func (m *CaddyKubeAdmission) releaseAssets() []*dagger.File {
 	binaries := m.binaries()
 	checksums := dag.Checksum().Sha256().Calculate(binaries)
 
