@@ -1,0 +1,7 @@
+/.devenv/
+/.direnv/
+/bin/
+/build/
+/tmp/
+/var/
+/vendor/
