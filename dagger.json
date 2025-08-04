@@ -6,6 +6,21 @@
   },
   "dependencies": [
     {
+      "name": "archivist",
+      "source": "github.com/sagikazarmark/daggerverse/archivist",
+      "pin": "ceffda4aebd349a24fc00e591b4ed9b801535b65"
+    },
+    {
+      "name": "checksum",
+      "source": "github.com/sagikazarmark/daggerverse/checksum",
+      "pin": "ceffda4aebd349a24fc00e591b4ed9b801535b65"
+    },
+    {
+      "name": "gh",
+      "source": "github.com/sagikazarmark/daggerverse/gh",
+      "pin": "ceffda4aebd349a24fc00e591b4ed9b801535b65"
+    },
+    {
       "name": "go",
       "source": "github.com/sagikazarmark/daggerverse/go",
       "pin": "ceffda4aebd349a24fc00e591b4ed9b801535b65"
