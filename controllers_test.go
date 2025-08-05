@@ -89,8 +89,9 @@ func TestAlwaysAllow_Admit(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			handler := AlwaysAllow{}
-			response := handler.Admit(context.Background(), testCase.review)
+			response, err := handler.Admit(context.Background(), testCase.review)
 
+			require.NoError(t, err)
 			require.NotNil(t, response)
 			assert.Equal(t, uid, response.UID)
 			assert.True(t, response.Allowed)
@@ -161,8 +162,9 @@ func TestAlwaysDeny_Admit(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			handler := AlwaysDeny{}
-			response := handler.Admit(context.Background(), testCase.review)
+			response, err := handler.Admit(context.Background(), testCase.review)
 
+			require.NoError(t, err)
 			require.NotNil(t, response)
 			assert.Equal(t, uid, response.UID)
 			assert.False(t, response.Allowed)
@@ -230,7 +232,8 @@ func TestAlwaysAllow_ResponseConsistency(t *testing.T) {
 
 	// Run multiple times to ensure consistency
 	for range 5 {
-		response := handler.Admit(context.Background(), review)
+		response, err := handler.Admit(context.Background(), review)
+		require.NoError(t, err)
 		require.NotNil(t, response)
 		assert.True(t, response.Allowed)
 		assert.Equal(t, uid, response.UID)
@@ -258,7 +261,8 @@ func TestAlwaysDeny_ResponseConsistency(t *testing.T) {
 
 	// Run multiple times to ensure consistency
 	for range 5 {
-		response := handler.Admit(context.Background(), review)
+		response, err := handler.Admit(context.Background(), review)
+		require.NoError(t, err)
 		require.NotNil(t, response)
 		assert.False(t, response.Allowed)
 		assert.Equal(t, uid, response.UID)
@@ -289,7 +293,8 @@ func TestControllersConcurrency(t *testing.T) {
 		for range 10 {
 			go func() {
 				defer func() { done <- true }()
-				response := handler.Admit(context.Background(), review)
+				response, err := handler.Admit(context.Background(), review)
+				assert.NoError(t, err)
 				assert.NotNil(t, response)
 				assert.True(t, response.Allowed)
 				assert.Equal(t, uid, response.UID)
@@ -308,7 +313,8 @@ func TestControllersConcurrency(t *testing.T) {
 		for range 10 {
 			go func() {
 				defer func() { done <- true }()
-				response := handler.Admit(context.Background(), review)
+				response, err := handler.Admit(context.Background(), review)
+				assert.NoError(t, err)
 				assert.NotNil(t, response)
 				assert.False(t, response.Allowed)
 				assert.Equal(t, uid, response.UID)
@@ -451,8 +457,9 @@ func TestAnnotationInjector_Admit(t *testing.T) {
 				},
 			}
 
-			response := injector.Admit(context.Background(), admissionReview)
+			response, err := injector.Admit(context.Background(), admissionReview)
 
+			require.NoError(t, err)
 			require.NotNil(t, response)
 			assert.Equal(t, types.UID(uid), response.UID)
 			assert.Equal(t, testCase.expectAllow, response.Allowed)
@@ -653,8 +660,9 @@ func TestAnnotationInjector_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	response := injector.Admit(ctx, review)
+	response, err := injector.Admit(ctx, review)
 
+	require.NoError(t, err)
 	require.NotNil(t, response)
 	assert.Equal(t, uid, response.UID)
 	assert.True(t, response.Allowed)
@@ -719,8 +727,9 @@ func TestAnnotationInjector_LargeObject(t *testing.T) {
 		},
 	}
 
-	response := injector.Admit(context.Background(), review)
+	response, err := injector.Admit(context.Background(), review)
 
+	require.NoError(t, err)
 	require.NotNil(t, response)
 	assert.Equal(t, uid, response.UID)
 	assert.True(t, response.Allowed)

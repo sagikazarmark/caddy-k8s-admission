@@ -31,16 +31,16 @@ type MockHandler struct {
 func (m *MockHandler) Admit(
 	_ context.Context,
 	review admissionv1.AdmissionReview,
-) *admissionv1.AdmissionResponse {
+) (*admissionv1.AdmissionResponse, error) {
 	m.Called = true
 	if m.Response != nil {
-		return m.Response
+		return m.Response, nil
 	}
 
 	return &admissionv1.AdmissionResponse{
 		UID:     review.Request.UID,
 		Allowed: true,
-	}
+	}, nil
 }
 
 func TestWebhook_CaddyModule(t *testing.T) {

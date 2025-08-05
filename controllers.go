@@ -8,7 +8,6 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	admissionv1 "k8s.io/api/admission/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -37,11 +36,11 @@ func (AlwaysAllow) CaddyModule() caddy.ModuleInfo {
 func (a AlwaysAllow) Admit(
 	_ context.Context,
 	review admissionv1.AdmissionReview,
-) *admissionv1.AdmissionResponse {
+) (*admissionv1.AdmissionResponse, error) {
 	return &admissionv1.AdmissionResponse{
 		UID:     review.Request.UID,
 		Allowed: true,
-	}
+	}, nil
 }
 
 // Interface guard
@@ -66,11 +65,11 @@ func (AlwaysDeny) CaddyModule() caddy.ModuleInfo {
 func (a AlwaysDeny) Admit(
 	_ context.Context,
 	review admissionv1.AdmissionReview,
-) *admissionv1.AdmissionResponse {
+) (*admissionv1.AdmissionResponse, error) {
 	return &admissionv1.AdmissionResponse{
 		UID:     review.Request.UID,
 		Allowed: false,
-	}
+	}, nil
 }
 
 // Interface guard
@@ -115,23 +114,19 @@ func (a AnnotationInjector) Validate() error {
 func (a AnnotationInjector) Admit(
 	_ context.Context,
 	review admissionv1.AdmissionReview,
-) *admissionv1.AdmissionResponse {
+) (*admissionv1.AdmissionResponse, error) {
 	// If no annotations configured, allow without modification
 	if len(a.Annotations) == 0 {
 		return &admissionv1.AdmissionResponse{
 			UID:     review.Request.UID,
 			Allowed: true,
-		}
+		}, nil
 	}
 
 	var obj unstructured.Unstructured
 
 	if err := json.Unmarshal(review.Request.Object.Raw, &obj); err != nil {
-		return &admissionv1.AdmissionResponse{
-			UID:     review.Request.UID,
-			Allowed: false,
-			Result:  &metav1.Status{Message: err.Error()},
-		}
+		return nil, err
 	}
 
 	annotations := obj.GetAnnotations()
@@ -152,7 +147,7 @@ func (a AnnotationInjector) Admit(
 		Allowed:   true,
 		Patch:     patch,
 		PatchType: &patchType,
-	}
+	}, nil
 }
 
 // escapeJSONPointer escapes a string for use in a JSON Pointer path.
