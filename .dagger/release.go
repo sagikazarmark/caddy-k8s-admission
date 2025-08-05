@@ -15,7 +15,7 @@ func (m *CaddyKubeAdmission) Release(ctx context.Context, version string, github
 		return errors.New("GitHub token is required to publish a release")
 	}
 
-	return dag.Gh(dagger.GhOpts{
+	err := dag.Gh(dagger.GhOpts{
 		Token: githubToken,
 		Repo:  "sagikazarmark/caddy-k8s-admission",
 	}).Release().Create(ctx, version, version, dagger.GhReleaseCreateOpts{
@@ -24,6 +24,20 @@ func (m *CaddyKubeAdmission) Release(ctx context.Context, version string, github
 		Latest:        dagger.GhLatestLatestTrue,
 		VerifyTag:     true,
 	})
+	if err != nil {
+		return err
+	}
+
+	_, err = dag.Container().
+		WithRegistryAuth("ghcr.io", "sagikazarmark", githubToken).
+		Publish(ctx, fmt.Sprintf("ghcr.io/sagikazarmark/caddy-k8s-admission:%s", version), dagger.ContainerPublishOpts{
+			PlatformVariants: m.releaseContainers(),
+		})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (m *CaddyKubeAdmission) releaseAssets() []*dagger.File {
@@ -49,4 +63,19 @@ func (m *CaddyKubeAdmission) binaries() []*dagger.File {
 	}
 
 	return binaries
+}
+
+func (m *CaddyKubeAdmission) releaseContainers() []*dagger.Container {
+	platforms := []dagger.Platform{
+		"linux/amd64",
+		"linux/arm64",
+	}
+
+	containers := make([]*dagger.Container, 0, len(platforms))
+
+	for _, platform := range platforms {
+		containers = append(containers, m.Container("", platform))
+	}
+
+	return containers
 }

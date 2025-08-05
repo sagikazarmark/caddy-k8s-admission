@@ -27,18 +27,6 @@ example.com {
 }
 ```
 
-### Annotation Injector
-
-```caddyfile
-example.com {
-    k8s_admission annotation_injector {
-        managed-by caddy-k8s-admission
-        version v1.0.0
-        environment production
-    }
-}
-```
-
 ### Validation Policy
 
 ```caddyfile
@@ -85,18 +73,6 @@ A simple handler that always denies admission requests. Useful for testing or te
 
 ```caddyfile
 k8s_admission always_deny
-```
-
-### `annotation_injector`
-
-Injects specified annotations into Kubernetes resources using JSON Patch operations.
-
-```caddyfile
-k8s_admission annotation_injector {
-    app.kubernetes.io/managed-by caddy-admission-webhook
-    app.kubernetes.io/version v1.0.0
-    custom.example.com/environment production
-}
 ```
 
 ### `validation_policy`
@@ -262,13 +238,6 @@ Here's a comprehensive example showing multiple controllers working together:
     }
 
     # Alternative annotation-based mutation
-    route /annotate {
-        k8s_admission annotation_injector {
-            app.kubernetes.io/managed-by caddy-admission-webhook
-            app.kubernetes.io/version v1.0.0
-            admission.webhook/processed "true"
-        }
-    }
 
     # Testing endpoints
     route /test/allow {
@@ -346,8 +315,12 @@ Admission webhooks require TLS. Here's an example Caddyfile with automatic HTTPS
     }
 
     route /mutate {
-        k8s_admission annotation_injector {
-            app.kubernetes.io/managed-by caddy-admission-webhook
+        k8s_admission json_patch {
+            patch {
+                op "add"
+                path "/metadata/labels/managed-by"
+                value "caddy-admission-webhook"
+            }
         }
     }
 }
