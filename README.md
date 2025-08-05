@@ -50,6 +50,25 @@ example.com {
 }
 ```
 
+### JSON Patch
+
+```caddyfile
+example.com {
+    k8s_admission json_patch {
+        patch {
+            op "add"
+            path "/metadata/labels/managed-by"
+            value "caddy-admission-webhook"
+        }
+        patch {
+            op "replace"
+            path "/spec/replicas"
+            value 3
+        }
+    }
+}
+```
+
 ## Built-in Handlers
 
 ### `always_allow`
@@ -114,6 +133,153 @@ k8s_admission validation_policy {
 **Actions:**
 - `allow` - Allow the request when the expression matches
 - `deny` - Deny the request when the expression matches
+
+### `json_patch`
+
+Applies custom JSON Patch operations to Kubernetes resources. Supports all standard JSON Patch operations: add, remove, replace, move, copy, and test.
+
+```caddyfile
+# Add labels and modify replicas
+k8s_admission json_patch {
+    patch {
+        op "add"
+        path "/metadata/labels/app"
+        value "my-app"
+    }
+    patch {
+        op "replace"
+        path "/spec/replicas"
+        value 3
+    }
+}
+
+# Add environment variables with JSON object
+k8s_admission json_patch {
+    patch {
+        op "add"
+        path "/spec/template/spec/containers/0/env/-"
+        value {"name":"DATABASE_URL","value":"postgres://..."}
+    }
+}
+
+# Add multiple ports using array syntax
+k8s_admission json_patch {
+    patch {
+        op "add"
+        path "/spec/template/spec/containers/0/ports"
+        value 8080 8443 9090
+    }
+}
+
+# Move and copy operations
+k8s_admission json_patch {
+    patch {
+        op "move"
+        path "/metadata/labels/new-label"
+        from "/metadata/labels/old-label"
+    }
+    patch {
+        op "copy"
+        path "/metadata/annotations/backup-of-label"
+        from "/metadata/labels/important-label"
+    }
+}
+
+# Remove unwanted fields
+k8s_admission json_patch {
+    patch {
+        op "remove"
+        path "/metadata/annotations/unwanted-annotation"
+    }
+}
+```
+
+**Supported Value Types:**
+- **Strings**: `value "my-app"`
+- **Numbers**: `value 3` (parsed as JSON numbers)
+- **Booleans**: `value true` or `value false`
+- **JSON Objects**: `value {"key":"value","nested":{"data":true}}`
+- **Arrays from multiple arguments**: `value 8080 8443 9090` creates `[8080, 8443, 9090]`
+- **Mixed arrays**: `value "string" 42 true {"key":"value"}`
+
+**JSON Patch Operations:**
+- `add` - Add a value at the specified path
+- `remove` - Remove the value at the specified path
+- `replace` - Replace the value at the specified path
+- `move` - Move a value from one path to another
+- `copy` - Copy a value from one path to another
+- `test` - Test that the value at the path matches the specified value
+
+## Complete Example
+
+Here's a comprehensive example showing multiple controllers working together:
+
+```caddyfile
+{
+    auto_https off
+}
+
+:8443 {
+    tls /etc/certs/tls.crt /etc/certs/tls.key
+
+    # Validation endpoint - deny pods in kube-system
+    route /validate {
+        k8s_admission validation_policy {
+            expression "requestNamespace == 'kube-system'"
+            action deny
+        }
+    }
+
+    # Mutation endpoint - inject labels and modify resources
+    route /mutate {
+        k8s_admission json_patch {
+            # Add management labels
+            patch {
+                op "add"
+                path "/metadata/labels/managed-by"
+                value "caddy-admission-webhook"
+            }
+            patch {
+                op "add"
+                path "/metadata/labels/version"
+                value "v1.0.0"
+            }
+            
+            # Add security context if not present
+            patch {
+                op "add"
+                path "/spec/template/spec/securityContext"
+                value {"runAsNonRoot":true,"runAsUser":1001}
+            }
+            
+            # Add resource limits
+            patch {
+                op "add"
+                path "/spec/template/spec/containers/0/resources"
+                value {"limits":{"memory":"512Mi","cpu":"500m"},"requests":{"memory":"256Mi","cpu":"250m"}}
+            }
+        }
+    }
+
+    # Alternative annotation-based mutation
+    route /annotate {
+        k8s_admission annotation_injector {
+            app.kubernetes.io/managed-by caddy-admission-webhook
+            app.kubernetes.io/version v1.0.0
+            admission.webhook/processed "true"
+        }
+    }
+
+    # Testing endpoints
+    route /test/allow {
+        k8s_admission always_allow
+    }
+    
+    route /test/deny {
+        k8s_admission always_deny
+    }
+}
+```
 
 ## Kubernetes Configuration
 

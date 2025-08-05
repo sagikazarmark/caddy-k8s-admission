@@ -3,6 +3,7 @@ package admission
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2"
@@ -204,6 +205,11 @@ func TestControllersModuleRegistration(t *testing.T) {
 			name:     "ValidationPolicy",
 			moduleID: "k8s.admission.validation_policy",
 			module:   &ValidationPolicy{},
+		},
+		{
+			name:     "JSONPatchController",
+			moduleID: "k8s.admission.json_patch",
+			module:   &JSONPatchController{},
 		},
 	}
 
@@ -475,7 +481,7 @@ func TestAnnotationInjector_Admit(t *testing.T) {
 				assert.Equal(t, admissionv1.PatchTypeJSONPatch, *response.PatchType)
 
 				// Verify patch is valid JSON
-				var patches []map[string]interface{}
+				var patches []map[string]any
 				err := json.Unmarshal(response.Patch, &patches)
 				assert.NoError(t, err)
 				assert.NotEmpty(t, patches)
@@ -1331,4 +1337,681 @@ func TestAnnotationInjector_LargeObject(t *testing.T) {
 	annotations, ok := patch["value"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "value", annotations["test"])
+}
+
+func TestJSONPatch_Validate(t *testing.T) {
+	testCases := []struct {
+		name        string
+		patch       JSONPatch
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid add operation",
+			patch: JSONPatch{
+				Op:    "add",
+				Path:  "/metadata/labels/test",
+				Value: "test-value",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid remove operation",
+			patch: JSONPatch{
+				Op:   "remove",
+				Path: "/metadata/labels/test",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid replace operation",
+			patch: JSONPatch{
+				Op:    "replace",
+				Path:  "/spec/replicas",
+				Value: 3,
+			},
+			expectError: false,
+		},
+		{
+			name: "valid move operation",
+			patch: JSONPatch{
+				Op:   "move",
+				Path: "/metadata/labels/new-label",
+				From: "/metadata/labels/old-label",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid copy operation",
+			patch: JSONPatch{
+				Op:   "copy",
+				Path: "/metadata/labels/copied-label",
+				From: "/metadata/labels/source-label",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid test operation",
+			patch: JSONPatch{
+				Op:    "test",
+				Path:  "/metadata/name",
+				Value: "expected-name",
+			},
+			expectError: false,
+		},
+		{
+			name: "missing operation",
+			patch: JSONPatch{
+				Path:  "/metadata/labels/test",
+				Value: "test-value",
+			},
+			expectError: true,
+			errorMsg:    "operation is required",
+		},
+		{
+			name: "invalid operation",
+			patch: JSONPatch{
+				Op:    "invalid",
+				Path:  "/metadata/labels/test",
+				Value: "test-value",
+			},
+			expectError: true,
+			errorMsg:    "invalid operation 'invalid'",
+		},
+		{
+			name: "missing path",
+			patch: JSONPatch{
+				Op:    "add",
+				Value: "test-value",
+			},
+			expectError: true,
+			errorMsg:    "path is required",
+		},
+		{
+			name: "add operation missing value",
+			patch: JSONPatch{
+				Op:   "add",
+				Path: "/metadata/labels/test",
+			},
+			expectError: true,
+			errorMsg:    "'value' field is required for add operation",
+		},
+		{
+			name: "replace operation missing value",
+			patch: JSONPatch{
+				Op:   "replace",
+				Path: "/spec/replicas",
+			},
+			expectError: true,
+			errorMsg:    "'value' field is required for replace operation",
+		},
+		{
+			name: "test operation missing value",
+			patch: JSONPatch{
+				Op:   "test",
+				Path: "/metadata/name",
+			},
+			expectError: true,
+			errorMsg:    "'value' field is required for test operation",
+		},
+		{
+			name: "move operation missing from",
+			patch: JSONPatch{
+				Op:   "move",
+				Path: "/metadata/labels/new-label",
+			},
+			expectError: true,
+			errorMsg:    "'from' field is required for move operation",
+		},
+		{
+			name: "copy operation missing from",
+			patch: JSONPatch{
+				Op:   "copy",
+				Path: "/metadata/labels/copied-label",
+			},
+			expectError: true,
+			errorMsg:    "'from' field is required for copy operation",
+		},
+		{
+			name: "remove operation with value (allowed)",
+			patch: JSONPatch{
+				Op:    "remove",
+				Path:  "/metadata/labels/test",
+				Value: "ignored-value",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid operation with complex value",
+			patch: JSONPatch{
+				Op:   "add",
+				Path: "/spec/template/spec/containers/0/env/-",
+				Value: map[string]any{
+					"name":  "TEST_ENV",
+					"value": "test-value",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "valid operation with array value",
+			patch: JSONPatch{
+				Op:    "replace",
+				Path:  "/spec/template/spec/containers/0/ports",
+				Value: []any{8080, 8443},
+			},
+			expectError: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.patch.Validate()
+
+			if testCase.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+					return
+				}
+				if testCase.errorMsg != "" && err.Error() != testCase.errorMsg {
+					t.Errorf("expected error message '%s', got '%s'", testCase.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestJSONPatchController_Validate(t *testing.T) {
+	testCases := []struct {
+		name        string
+		patches     []JSONPatch
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "empty patches",
+			patches:     []JSONPatch{},
+			expectError: false,
+		},
+		{
+			name: "valid patches",
+			patches: []JSONPatch{
+				{
+					Op:    "add",
+					Path:  "/metadata/labels/test",
+					Value: "test-value",
+				},
+				{
+					Op:   "remove",
+					Path: "/metadata/annotations/old-annotation",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "first patch invalid",
+			patches: []JSONPatch{
+				{
+					Op:   "add",
+					Path: "/metadata/labels/test",
+					// Missing value
+				},
+				{
+					Op:   "remove",
+					Path: "/metadata/annotations/old-annotation",
+				},
+			},
+			expectError: true,
+			errorMsg:    "patch 0: 'value' field is required for add operation",
+		},
+		{
+			name: "second patch invalid",
+			patches: []JSONPatch{
+				{
+					Op:    "add",
+					Path:  "/metadata/labels/test",
+					Value: "test-value",
+				},
+				{
+					Op:   "move",
+					Path: "/metadata/labels/new-label",
+					// Missing from
+				},
+			},
+			expectError: true,
+			errorMsg:    "patch 1: 'from' field is required for move operation",
+		},
+		{
+			name: "multiple invalid patches - reports all errors",
+			patches: []JSONPatch{
+				{
+					Op:    "invalid-op",
+					Path:  "/metadata/labels/test",
+					Value: "test-value",
+				},
+				{
+					Path:  "/metadata/labels/test2",
+					Value: "test-value2",
+					// Missing op
+				},
+			},
+			expectError: true,
+			errorMsg:    "patch 0: invalid operation 'invalid-op'\npatch 1: operation is required",
+		},
+		{
+			name: "comprehensive multiple errors",
+			patches: []JSONPatch{
+				{
+					Op:    "invalid-op",
+					Path:  "/metadata/labels/test",
+					Value: "test-value",
+				},
+				{
+					// Missing op
+					Path:  "/metadata/labels/test2",
+					Value: "test-value2",
+				},
+				{
+					Op: "add",
+					// Missing path
+					Value: "test-value3",
+				},
+				{
+					Op:   "move",
+					Path: "/metadata/labels/new-label",
+					// Missing from
+				},
+			},
+			expectError: true,
+			errorMsg:    "patch 0: invalid operation 'invalid-op'\npatch 1: operation is required\npatch 2: path is required\npatch 3: 'from' field is required for move operation",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			controller := &JSONPatchController{
+				Patches: testCase.patches,
+			}
+
+			err := controller.Validate()
+
+			if testCase.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+					return
+				}
+				if testCase.errorMsg != "" && err.Error() != testCase.errorMsg {
+					t.Errorf("expected error message '%s', got '%s'", testCase.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestJSONPatchController_Validate_ErrorJoining(t *testing.T) {
+	// This test specifically demonstrates the error joining behavior
+	controller := &JSONPatchController{
+		Patches: []JSONPatch{
+			{
+				Op:    "invalid-op",
+				Path:  "/metadata/labels/test",
+				Value: "test-value",
+			},
+			{
+				// Missing op
+				Path:  "/metadata/labels/test2",
+				Value: "test-value2",
+			},
+			{
+				Op: "add",
+				// Missing path
+				Value: "test-value3",
+			},
+		},
+	}
+
+	err := controller.Validate()
+	require.Error(t, err)
+
+	// Check that all errors are present in the joined error
+	errorStr := err.Error()
+	assert.Contains(t, errorStr, "patch 0: invalid operation 'invalid-op'")
+	assert.Contains(t, errorStr, "patch 1: operation is required")
+	assert.Contains(t, errorStr, "patch 2: path is required")
+
+	// Check that errors.Join was used (multiple errors separated by newlines)
+	lines := strings.Split(errorStr, "\n")
+	assert.Equal(t, 3, len(lines), "Expected 3 error lines")
+}
+
+func TestJSONPatchController_UnmarshalCaddyfile_Enhanced(t *testing.T) {
+	testCases := []struct {
+		name            string
+		input           string
+		expectedPatches []JSONPatch
+		expectError     bool
+		errorMsg        string
+	}{
+		{
+			name: "single patch with simple values",
+			input: `json_patch {
+				patch {
+					op add
+					path "/metadata/labels/app"
+					value "my-app"
+				}
+			}`,
+			expectedPatches: []JSONPatch{
+				{
+					Op:    "add",
+					Path:  "/metadata/labels/app",
+					Value: "my-app",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "patch with escaped JSON pointer path",
+			input: `json_patch {
+				patch {
+					op add
+					path "/metadata/annotations/example.com/special~key"
+					value "escaped-value"
+				}
+			}`,
+			expectedPatches: []JSONPatch{
+				{
+					Op:    "add",
+					Path:  "/metadata/annotations/example.com/special~key",
+					Value: "escaped-value",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "patch with JSON object value",
+			input: `json_patch {
+				patch {
+					op add
+					path "/spec/template/spec/containers/0/env/-"
+					value {"name":"TEST_ENV","value":"test"}
+				}
+			}`,
+			expectedPatches: []JSONPatch{
+				{
+					Op:   "add",
+					Path: "/spec/template/spec/containers/0/env/-",
+					Value: map[string]any{
+						"name":  "TEST_ENV",
+						"value": "test",
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "patch with array value using multiple arguments",
+			input: `json_patch {
+				patch {
+					op replace
+					path "/spec/template/spec/containers/0/ports"
+					value 8080 8443 9090
+				}
+			}`,
+			expectedPatches: []JSONPatch{
+				{
+					Op:    "replace",
+					Path:  "/spec/template/spec/containers/0/ports",
+					Value: []any{float64(8080), float64(8443), float64(9090)},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "patch with mixed array values",
+			input: `json_patch {
+				patch {
+					op add
+					path "/metadata/labels"
+					value "string" 42 true {"key":"value"}
+				}
+			}`,
+			expectedPatches: []JSONPatch{
+				{
+					Op:   "add",
+					Path: "/metadata/labels",
+					Value: []any{
+						"string",
+						float64(42),
+						true,
+						map[string]any{"key": "value"},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "move operation with escaped paths",
+			input: `json_patch {
+				patch {
+					op move
+					path "/metadata/labels/new~label"
+					from "/metadata/labels/old/label"
+				}
+			}`,
+			expectedPatches: []JSONPatch{
+				{
+					Op:   "move",
+					Path: "/metadata/labels/new~label",
+					From: "/metadata/labels/old/label",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "multiple patches",
+			input: `json_patch {
+				patch {
+					op add
+					path "/metadata/labels/app"
+					value "my-app"
+				}
+				patch {
+					op remove
+					path "/metadata/annotations/old-annotation"
+				}
+				patch {
+					op replace
+					path "/spec/replicas"
+					value 3
+				}
+			}`,
+			expectedPatches: []JSONPatch{
+				{
+					Op:    "add",
+					Path:  "/metadata/labels/app",
+					Value: "my-app",
+				},
+				{
+					Op:   "remove",
+					Path: "/metadata/annotations/old-annotation",
+				},
+				{
+					Op:    "replace",
+					Path:  "/spec/replicas",
+					Value: float64(3),
+				},
+			},
+			expectError: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			controller := &JSONPatchController{}
+			d := caddyfile.NewTestDispenser(testCase.input)
+			d.Next() // advance to the directive name
+
+			err := controller.UnmarshalCaddyfile(d)
+
+			if testCase.expectError {
+				require.Error(t, err)
+				if testCase.errorMsg != "" {
+					assert.Contains(t, err.Error(), testCase.errorMsg)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, len(testCase.expectedPatches), len(controller.Patches))
+
+				for i, expectedPatch := range testCase.expectedPatches {
+					if i < len(controller.Patches) {
+						actualPatch := controller.Patches[i]
+						assert.Equal(t, expectedPatch.Op, actualPatch.Op, "Operation mismatch at patch %d", i)
+						assert.Equal(t, expectedPatch.Path, actualPatch.Path, "Path mismatch at patch %d", i)
+						assert.Equal(t, expectedPatch.From, actualPatch.From, "From mismatch at patch %d", i)
+						assert.Equal(t, expectedPatch.Value, actualPatch.Value, "Value mismatch at patch %d", i)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestJSONPatchController_Admit(t *testing.T) {
+	testCases := []struct {
+		name        string
+		patches     []JSONPatch
+		expectAllow bool
+		expectPatch bool
+	}{
+		{
+			name:        "no patches configured",
+			patches:     []JSONPatch{},
+			expectAllow: true,
+			expectPatch: false,
+		},
+		{
+			name: "single patch",
+			patches: []JSONPatch{
+				{
+					Op:    "add",
+					Path:  "/metadata/labels/app",
+					Value: "my-app",
+				},
+			},
+			expectAllow: true,
+			expectPatch: true,
+		},
+		{
+			name: "multiple patches",
+			patches: []JSONPatch{
+				{
+					Op:    "add",
+					Path:  "/metadata/labels/app",
+					Value: "my-app",
+				},
+				{
+					Op:    "replace",
+					Path:  "/spec/replicas",
+					Value: 3,
+				},
+			},
+			expectAllow: true,
+			expectPatch: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			controller := &JSONPatchController{
+				Patches: testCase.patches,
+			}
+
+			review := admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID: "test-uid",
+					Object: runtime.RawExtension{
+						Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`),
+					},
+				},
+			}
+
+			response, err := controller.Admit(context.Background(), review)
+			require.NoError(t, err)
+			require.NotNil(t, response)
+
+			assert.Equal(t, types.UID("test-uid"), response.UID)
+			assert.Equal(t, testCase.expectAllow, response.Allowed)
+
+			if testCase.expectPatch {
+				assert.NotNil(t, response.Patch)
+				assert.NotNil(t, response.PatchType)
+				assert.Equal(t, admissionv1.PatchTypeJSONPatch, *response.PatchType)
+
+				// Verify patch is valid JSON
+				var patches []JSONPatch
+				err := json.Unmarshal(response.Patch, &patches)
+				require.NoError(t, err)
+				assert.Equal(t, len(testCase.patches), len(patches))
+			} else {
+				assert.Nil(t, response.Patch)
+				assert.Nil(t, response.PatchType)
+			}
+		})
+	}
+}
+
+func TestEscapeJSONPointer_Enhanced(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "simple",
+			expected: "simple",
+		},
+		{
+			input:    "with/slash",
+			expected: "with~1slash",
+		},
+		{
+			input:    "with~tilde",
+			expected: "with~0tilde",
+		},
+		{
+			input:    "with~/both",
+			expected: "with~0~1both",
+		},
+		{
+			input:    "example.com/annotation~key",
+			expected: "example.com~1annotation~0key",
+		},
+		{
+			input:    "complex/path~with/multiple~chars",
+			expected: "complex~1path~0with~1multiple~0chars",
+		},
+		{
+			input:    "",
+			expected: "",
+		},
+		{
+			input:    "~/~",
+			expected: "~0~1~0",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.input, func(t *testing.T) {
+			result := escapeJSONPointer(testCase.input)
+			assert.Equal(t, testCase.expected, result)
+		})
+	}
 }
