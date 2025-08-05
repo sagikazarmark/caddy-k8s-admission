@@ -57,11 +57,11 @@ example.com {
 }
 ```
 
-## Built-in Handlers
+## Built-in Controllers
 
 ### `always_allow`
 
-A simple handler that always allows admission requests. Useful for testing or as a default fallback.
+A simple controller that always allows admission requests. Useful for testing or as a default fallback.
 
 ```caddyfile
 k8s_admission always_allow
@@ -69,7 +69,7 @@ k8s_admission always_allow
 
 ### `always_deny`
 
-A simple handler that always denies admission requests. Useful for testing or temporary blocking.
+A simple controller that always denies admission requests. Useful for testing or temporary blocking.
 
 ```caddyfile
 k8s_admission always_deny
