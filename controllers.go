@@ -17,7 +17,7 @@ func init() {
 	caddy.RegisterModule(AlwaysAllow{})
 	caddy.RegisterModule(AlwaysDeny{})
 	caddy.RegisterModule(ValidationPolicy{})
-	caddy.RegisterModule(JSONPatchController{})
+	caddy.RegisterModule(JSONPatcher{})
 }
 
 // AlwaysAllow is a simple admission webhook controller that always allows requests.
@@ -287,57 +287,25 @@ func (p JSONPatch) Validate() error {
 	return nil
 }
 
-// JSONPatchController is an admission webhook controller that applies custom JSON patches to resources.
+// JSONPatcher is an admission webhook controller that applies custom JSON patches to resources.
 //
 // It accepts a list of JSON Patch operations and applies them to incoming resources.
 // Supports all standard JSON Patch operations: add, remove, replace, move, copy, test.
-//
-// Caddyfile syntax supports multiple value types:
-//   - Single values: strings, numbers, booleans, JSON objects
-//   - Multiple values: creates an array from multiple arguments
-//   - JSON parsing: automatically parses JSON strings for complex values
-//
-// Example Caddyfile configuration:
-//
-//	k8s_admission {
-//		controller json_patch {
-//			patch {
-//				op "add"
-//				path "/metadata/labels/app"
-//				value "my-app"
-//			}
-//			patch {
-//				op "replace"
-//				path "/spec/replicas"
-//				value 3
-//			}
-//			patch {
-//				op "add"
-//				path "/spec/template/spec/containers/0/env/-"
-//				value {"name":"ENV_VAR","value":"production"}
-//			}
-//			patch {
-//				op "add"
-//				path "/spec/template/spec/containers/0/ports"
-//				value 8080 8443 9090
-//			}
-//		}
-//	}
-type JSONPatchController struct {
+type JSONPatcher struct {
 	// Patches is a list of JSON Patch operations to apply to resources.
 	Patches []JSONPatch `json:"patches,omitempty"`
 }
 
 // CaddyModule returns the Caddy module information.
-func (JSONPatchController) CaddyModule() caddy.ModuleInfo {
+func (JSONPatcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "k8s.admission.json_patch",
-		New: func() caddy.Module { return new(JSONPatchController) },
+		New: func() caddy.Module { return new(JSONPatcher) },
 	}
 }
 
 // Provision sets up the JSON patch controller.
-func (j *JSONPatchController) Provision(_ caddy.Context) error {
+func (j *JSONPatcher) Provision(_ caddy.Context) error {
 	if j.Patches == nil {
 		j.Patches = make([]JSONPatch, 0)
 	}
@@ -346,7 +314,7 @@ func (j *JSONPatchController) Provision(_ caddy.Context) error {
 }
 
 // Validate validates the configuration.
-func (j JSONPatchController) Validate() error {
+func (j JSONPatcher) Validate() error {
 	var errs []error
 
 	for i, patch := range j.Patches {
@@ -359,7 +327,7 @@ func (j JSONPatchController) Validate() error {
 }
 
 // UnmarshalCaddyfile implements [caddyfile.Unmarshaler].
-func (j *JSONPatchController) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (j *JSONPatcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	if j.Patches == nil {
 		j.Patches = make([]JSONPatch, 0)
 	}
@@ -434,7 +402,7 @@ func (j *JSONPatchController) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // Admit processes an admission review and applies the configured JSON patches.
 //
 // Implements the [Controller] interface.
-func (j JSONPatchController) Admit(
+func (j JSONPatcher) Admit(
 	_ context.Context,
 	review admissionv1.AdmissionReview,
 ) (*admissionv1.AdmissionResponse, error) {
@@ -464,8 +432,8 @@ func (j JSONPatchController) Admit(
 
 // Interface guards
 var (
-	_ Controller            = (*JSONPatchController)(nil)
-	_ caddy.Provisioner     = (*JSONPatchController)(nil)
-	_ caddy.Validator       = (*JSONPatchController)(nil)
-	_ caddyfile.Unmarshaler = (*JSONPatchController)(nil)
+	_ Controller            = (*JSONPatcher)(nil)
+	_ caddy.Provisioner     = (*JSONPatcher)(nil)
+	_ caddy.Validator       = (*JSONPatcher)(nil)
+	_ caddyfile.Unmarshaler = (*JSONPatcher)(nil)
 )

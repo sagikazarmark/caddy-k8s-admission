@@ -204,7 +204,7 @@ func TestControllersModuleRegistration(t *testing.T) {
 		{
 			name:     "JSONPatchController",
 			moduleID: "k8s.admission.json_patch",
-			module:   &JSONPatchController{},
+			module:   &JSONPatcher{},
 		},
 	}
 
@@ -1208,7 +1208,7 @@ func TestJSONPatchController_Validate(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			controller := &JSONPatchController{
+			controller := &JSONPatcher{
 				Patches: testCase.patches,
 			}
 
@@ -1233,7 +1233,7 @@ func TestJSONPatchController_Validate(t *testing.T) {
 
 func TestJSONPatchController_Validate_ErrorJoining(t *testing.T) {
 	// This test specifically demonstrates the error joining behavior
-	controller := &JSONPatchController{
+	controller := &JSONPatcher{
 		Patches: []JSONPatch{
 			{
 				Op:    "invalid-op",
@@ -1431,7 +1431,7 @@ func TestJSONPatchController_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			controller := &JSONPatchController{}
+			controller := &JSONPatcher{}
 			d := caddyfile.NewTestDispenser(testCase.input)
 			d.Next() // advance to the directive name
 
@@ -1506,7 +1506,7 @@ func TestJSONPatchController_Admit(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			controller := &JSONPatchController{
+			controller := &JSONPatcher{
 				Patches: testCase.patches,
 			}
 
