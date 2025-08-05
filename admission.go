@@ -25,7 +25,10 @@ func init() {
 // Guest modules in the k8s.admission namespace should implement this interface.
 type Controller interface {
 	// Admit processes an admission review and returns an admission response.
-	Admit(ctx context.Context, review admissionv1.AdmissionReview) (*admissionv1.AdmissionResponse, error)
+	Admit(
+		ctx context.Context,
+		review admissionv1.AdmissionReview,
+	) (*admissionv1.AdmissionResponse, error)
 }
 
 // Webhook is a Caddy HTTP handler that processes Kubernetes admission webhook requests.
@@ -113,7 +116,10 @@ func (wh Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.
 	if err != nil {
 		logger.Error("admission controller failed", zap.Error(err))
 
-		return caddyhttp.Error(http.StatusInternalServerError, fmt.Errorf("admission controller error: %w", err))
+		return caddyhttp.Error(
+			http.StatusInternalServerError,
+			fmt.Errorf("admission controller error: %w", err),
+		)
 	}
 
 	// If no response is provided, create a default allow response

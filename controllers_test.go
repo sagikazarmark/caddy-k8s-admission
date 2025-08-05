@@ -590,7 +590,9 @@ func TestValidationPolicy_Admit(t *testing.T) {
 					UID:       types.UID(uid),
 					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
-						Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`),
+						Raw: []byte(
+							`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`,
+						),
 					},
 				},
 			},
@@ -606,7 +608,9 @@ func TestValidationPolicy_Admit(t *testing.T) {
 					UID:       types.UID(uid),
 					Operation: admissionv1.Update,
 					OldObject: runtime.RawExtension{
-						Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`),
+						Raw: []byte(
+							`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`,
+						),
 					},
 				},
 			},
@@ -623,7 +627,9 @@ func TestValidationPolicy_Admit(t *testing.T) {
 					Operation: admissionv1.Create,
 					Namespace: "production",
 					Object: runtime.RawExtension{
-						Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"critical-service"}}`),
+						Raw: []byte(
+							`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"critical-service"}}`,
+						),
 					},
 				},
 			},
@@ -814,7 +820,9 @@ func TestValidationPolicy_IntegrationExample(t *testing.T) {
 				Operation: admissionv1.Create,
 				Namespace: "kube-system",
 				Object: runtime.RawExtension{
-					Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"system-pod","namespace":"kube-system"}}`),
+					Raw: []byte(
+						`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"system-pod","namespace":"kube-system"}}`,
+					),
 				},
 			},
 			expectAllowed: false,
@@ -831,7 +839,9 @@ func TestValidationPolicy_IntegrationExample(t *testing.T) {
 				Operation: admissionv1.Create,
 				Namespace: "default",
 				Object: runtime.RawExtension{
-					Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"user-pod","namespace":"default"}}`),
+					Raw: []byte(
+						`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"user-pod","namespace":"default"}}`,
+					),
 				},
 			},
 			expectAllowed: true,
@@ -865,7 +875,9 @@ func TestValidationPolicy_IntegrationExample(t *testing.T) {
 				Operation: admissionv1.Create,
 				Name:      "prod-service",
 				Object: runtime.RawExtension{
-					Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"prod-service"}}`),
+					Raw: []byte(
+						`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"prod-service"}}`,
+					),
 				},
 			},
 			expectAllowed: true,
@@ -882,7 +894,9 @@ func TestValidationPolicy_IntegrationExample(t *testing.T) {
 				Operation: admissionv1.Delete,
 				Namespace: "production",
 				Object: runtime.RawExtension{
-					Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"critical-db","labels":{"critical":"true"}}}`),
+					Raw: []byte(
+						`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"critical-db","labels":{"critical":"true"}}}`,
+					),
 				},
 			},
 			expectAllowed: false,
@@ -909,7 +923,12 @@ func TestValidationPolicy_IntegrationExample(t *testing.T) {
 			assert.Equal(t, types.UID(uid), response.UID, "UID should match")
 			assert.Equal(t, testCase.expectAllowed, response.Allowed, testCase.description)
 
-			t.Logf("Policy result: %v (expected: %v) - %s", response.Allowed, testCase.expectAllowed, testCase.description)
+			t.Logf(
+				"Policy result: %v (expected: %v) - %s",
+				response.Allowed,
+				testCase.expectAllowed,
+				testCase.description,
+			)
 		})
 	}
 }
@@ -1089,7 +1108,11 @@ func TestJSONPatch_Validate(t *testing.T) {
 					return
 				}
 				if testCase.errorMsg != "" && err.Error() != testCase.errorMsg {
-					t.Errorf("expected error message '%s', got '%s'", testCase.errorMsg, err.Error())
+					t.Errorf(
+						"expected error message '%s', got '%s'",
+						testCase.errorMsg,
+						err.Error(),
+					)
 				}
 			} else {
 				if err != nil {
@@ -1220,7 +1243,11 @@ func TestJSONPatchController_Validate(t *testing.T) {
 					return
 				}
 				if testCase.errorMsg != "" && err.Error() != testCase.errorMsg {
-					t.Errorf("expected error message '%s', got '%s'", testCase.errorMsg, err.Error())
+					t.Errorf(
+						"expected error message '%s', got '%s'",
+						testCase.errorMsg,
+						err.Error(),
+					)
 				}
 			} else {
 				if err != nil {
@@ -1514,7 +1541,9 @@ func TestJSONPatchController_Admit(t *testing.T) {
 				Request: &admissionv1.AdmissionRequest{
 					UID: "test-uid",
 					Object: runtime.RawExtension{
-						Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`),
+						Raw: []byte(
+							`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`,
+						),
 					},
 				},
 			}
