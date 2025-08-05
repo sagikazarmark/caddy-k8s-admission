@@ -775,7 +775,7 @@ func TestValidationPolicy_ContextCancellation(t *testing.T) {
 	err := policy.Provision(caddy.Context{})
 	require.NoError(t, err)
 
-	// Create a cancelled context
+	// Create a canceled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
