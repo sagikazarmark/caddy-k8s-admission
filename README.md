@@ -244,14 +244,14 @@ Here's a comprehensive example showing multiple controllers working together:
                 path "/metadata/labels/version"
                 value "v1.0.0"
             }
-            
+
             # Add security context if not present
             patch {
                 op "add"
                 path "/spec/template/spec/securityContext"
                 value {"runAsNonRoot":true,"runAsUser":1001}
             }
-            
+
             # Add resource limits
             patch {
                 op "add"
@@ -274,7 +274,7 @@ Here's a comprehensive example showing multiple controllers working together:
     route /test/allow {
         k8s_admission always_allow
     }
-    
+
     route /test/deny {
         k8s_admission always_deny
     }
@@ -353,35 +353,35 @@ Admission webhooks require TLS. Here's an example Caddyfile with automatic HTTPS
 }
 ```
 
-## Custom Handlers
+## Custom Controllers
 
-You can create custom admission handlers by implementing the `Handler` interface:
+You can create custom admission controllers by implementing the `Controller` interface:
 
 ```go
-type Handler interface {
+type Controller interface {
     Admit(ctx context.Context, review admissionv1.AdmissionReview) *admissionv1.AdmissionResponse
 }
 ```
 
-Register your custom handler as a Caddy module in the `k8s.admission` namespace:
+Register your custom controller as a Caddy module in the `k8s.admission` namespace:
 
 ```go
 func init() {
-    caddy.RegisterModule(MyCustomHandler{})
+    caddy.RegisterModule(MyCustomController{})
 }
 
-type MyCustomHandler struct {
+type MyCustomController struct {
     // Your configuration fields
 }
 
-func (MyCustomHandler) CaddyModule() caddy.ModuleInfo {
+func (MyCustomController) CaddyModule() caddy.ModuleInfo {
     return caddy.ModuleInfo{
-        ID:  "k8s.admission.my_custom_handler",
-        New: func() caddy.Module { return new(MyCustomHandler) },
+        ID:  "k8s.admission.my_custom_controller",
+        New: func() caddy.Module { return new(MyCustomController) },
     }
 }
 
-func (h MyCustomHandler) Admit(ctx context.Context, review admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
+func (h MyCustomController) Admit(ctx context.Context, review admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
     // Your admission logic here
     return &admissionv1.AdmissionResponse{
         UID:     review.Request.UID,
