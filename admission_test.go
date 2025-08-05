@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,21 +19,25 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// MockHandler is a test implementation of the Handler interface.
-// It records whether it was called and can return a predefined response.
-type MockHandler struct {
+// MockController is a test implementation of the Handler interface.
+// It records whether it was called and can return a predefined response or error.
+type MockController struct {
 	Response *admissionv1.AdmissionResponse
+	Error    error
 	Called   bool
 }
 
 // Admit implements the Handler interface for testing.
-// It marks the handler as called and returns either a predefined response
-// or a default allow response.
-func (m *MockHandler) Admit(
+// It marks the handler as called and returns either a predefined response,
+// a predefined error, or a default allow response.
+func (m *MockController) Admit(
 	_ context.Context,
 	review admissionv1.AdmissionReview,
 ) (*admissionv1.AdmissionResponse, error) {
 	m.Called = true
+	if m.Error != nil {
+		return nil, m.Error
+	}
 	if m.Response != nil {
 		return m.Response, nil
 	}
@@ -110,7 +115,7 @@ func TestWebhook_Validate(t *testing.T) {
 		},
 		{
 			name:        "valid handler",
-			handler:     &MockHandler{},
+			handler:     &MockController{},
 			expectError: false,
 		},
 	}
@@ -219,13 +224,26 @@ func TestWebhook_ServeHTTP(t *testing.T) {
 			expectedStatus: 200,
 			expectedCalled: true,
 		},
+		{
+			name:           "controller returns error",
+			method:         "POST",
+			contentType:    "application/json",
+			body:           admissionReview,
+			expectedStatus: 500,
+			expectedCalled: true,
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Create mock admission handler
-			mockHandler := &MockHandler{
+			mockHandler := &MockController{
 				Response: testCase.mockResponse,
+			}
+
+			// Set up error for controller error test case
+			if testCase.name == "controller returns error" {
+				mockHandler.Error = fmt.Errorf("controller failed")
 			}
 
 			// Create the main handler

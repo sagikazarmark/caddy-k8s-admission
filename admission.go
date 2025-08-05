@@ -30,12 +30,12 @@ type Controller interface {
 
 // Webhook is a Caddy HTTP handler that processes Kubernetes admission webhook requests.
 //
-// It acts as a host module that loads guest modules admission controller modules.
+// It acts as a host module that loads guest admission controller modules.
 type Webhook struct {
-	// ControllerRaw holds the raw JSON configuration for the admission controller module.
+	// ControllerRaw holds the raw JSON configuration for the admission controller.
 	ControllerRaw json.RawMessage `json:"controller,omitempty" caddy:"namespace=k8s.admission inline_key=controller_type"`
 
-	// Controller is the loaded admission controller module.
+	// Controller is the loaded admission controller.
 	Controller Controller `json:"-"`
 
 	logger *zap.Logger
@@ -49,17 +49,17 @@ func (Webhook) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Provision sets up the handler and loads the admission controller module.
+// Provision sets up the handler and loads the admission controller.
 func (wh *Webhook) Provision(ctx caddy.Context) error {
 	wh.logger = ctx.Logger()
 
 	if wh.ControllerRaw == nil {
-		return fmt.Errorf("admission controller module is required")
+		return fmt.Errorf("admission controller is required")
 	}
 
 	val, err := ctx.LoadModule(wh, "ControllerRaw")
 	if err != nil {
-		return fmt.Errorf("loading admission controller module: %w", err)
+		return fmt.Errorf("loading admission controller: %w", err)
 	}
 
 	wh.Controller = val.(Controller)
@@ -111,23 +111,24 @@ func (wh Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.
 	// Process the admission review with the configured controller
 	response, err := wh.Controller.Admit(r.Context(), review)
 	if err != nil {
-		logger.Error("admission controller returned error", zap.Error(err))
+		logger.Error("admission controller failed", zap.Error(err))
 
 		return caddyhttp.Error(http.StatusInternalServerError, fmt.Errorf("admission controller error: %w", err))
 	}
 
-	// Ensure the response has the correct UID
-	if response != nil {
-		response.UID = review.Request.UID
-	} else {
+	// If no response is provided, create a default allow response
+	// THIS SHOULD NEVER HAPPEN
+	if response == nil {
 		logger.Warn("admission controller returned no response")
 
-		// If no response is provided, create a default allow response
 		response = &admissionv1.AdmissionResponse{
 			UID:     review.Request.UID,
 			Allowed: true,
 		}
 	}
+
+	// Ensure the response has the correct UID
+	response.UID = review.Request.UID
 
 	// Create the response admission review
 	responseReview := admissionv1.AdmissionReview{
