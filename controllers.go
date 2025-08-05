@@ -18,7 +18,7 @@ func init() {
 	caddy.RegisterModule(AnnotationInjector{})
 }
 
-// AlwaysAllow is a simple admission webhook [Handler] that always allows requests.
+// AlwaysAllow is a simple admission webhook [Controller] that always allows requests.
 //
 // This is useful for testing or as a default fallback handler.
 type AlwaysAllow struct{}
@@ -33,7 +33,7 @@ func (AlwaysAllow) CaddyModule() caddy.ModuleInfo {
 
 // Admit processes an admission review and always returns an allow response.
 //
-// Implements the [Handler] interface.
+// Implements the [Controller] interface.
 func (a AlwaysAllow) Admit(
 	_ context.Context,
 	review admissionv1.AdmissionReview,
@@ -45,9 +45,9 @@ func (a AlwaysAllow) Admit(
 }
 
 // Interface guard
-var _ Handler = (*AlwaysAllow)(nil)
+var _ Controller = (*AlwaysAllow)(nil)
 
-// AlwaysDeny is a simple admission webhook [Handler] that always rejects requests.
+// AlwaysDeny is a simple admission webhook [Controller] that always rejects requests.
 //
 // This is useful for testing or as a default fallback handler.
 type AlwaysDeny struct{}
@@ -62,7 +62,7 @@ func (AlwaysDeny) CaddyModule() caddy.ModuleInfo {
 
 // Admit processes an admission review and always returns a deny response.
 //
-// Implements the [Handler] interface.
+// Implements the [Controller] interface.
 func (a AlwaysDeny) Admit(
 	_ context.Context,
 	review admissionv1.AdmissionReview,
@@ -74,9 +74,9 @@ func (a AlwaysDeny) Admit(
 }
 
 // Interface guard
-var _ Handler = (*AlwaysDeny)(nil)
+var _ Controller = (*AlwaysDeny)(nil)
 
-// AnnotationInjector is an admission webhook [Handler] that injects annotations into Kubernetes resources.
+// AnnotationInjector is an admission webhook [Controller] that injects annotations into Kubernetes resources.
 //
 // It uses JSON Patch operations to add the specified annotations to the resource's metadata.
 type AnnotationInjector struct {
@@ -111,7 +111,7 @@ func (a AnnotationInjector) Validate() error {
 
 // Admit processes an admission review and injects annotations using JSON Patch.
 //
-// Implements the [Handler] interface.
+// Implements the [Controller] interface.
 func (a AnnotationInjector) Admit(
 	_ context.Context,
 	review admissionv1.AdmissionReview,
@@ -193,7 +193,7 @@ func (a *AnnotationInjector) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 // Interface guards
 var (
-	_ Handler               = (*AnnotationInjector)(nil)
+	_ Controller            = (*AnnotationInjector)(nil)
 	_ caddy.Provisioner     = (*AnnotationInjector)(nil)
 	_ caddy.Validator       = (*AnnotationInjector)(nil)
 	_ caddyfile.Unmarshaler = (*AnnotationInjector)(nil)

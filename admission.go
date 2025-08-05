@@ -20,23 +20,23 @@ func init() {
 	httpcaddyfile.RegisterHandlerDirective("k8s_admission", parseCaddyfile)
 }
 
-// Handler is the interface that admission webhook handlers must implement.
+// Controller is the interface that admission controllers must implement.
 //
 // Guest modules in the k8s.admission namespace should implement this interface.
-type Handler interface {
+type Controller interface {
 	// Admit processes an admission review and returns an admission response.
 	Admit(ctx context.Context, review admissionv1.AdmissionReview) *admissionv1.AdmissionResponse
 }
 
 // Webhook is a Caddy HTTP handler that processes Kubernetes admission webhook requests.
 //
-// It acts as a host module that loads guest admission webhook handler modules.
+// It acts as a host module that loads guest modules admission controller modules.
 type Webhook struct {
-	// HandlerRaw holds the raw JSON configuration for the admission webhook handler module.
-	HandlerRaw json.RawMessage `json:"handler,omitempty" caddy:"namespace=k8s.admission inline_key=handler_type"`
+	// ControllerRaw holds the raw JSON configuration for the admission controller module.
+	ControllerRaw json.RawMessage `json:"controller,omitempty" caddy:"namespace=k8s.admission inline_key=controller_type"`
 
-	// Handler is the loaded admission webhook handler module.
-	Handler Handler `json:"-"`
+	// Controller is the loaded admission controller module.
+	Controller Controller `json:"-"`
 
 	logger *zap.Logger
 }
@@ -49,35 +49,35 @@ func (Webhook) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Provision sets up the handler and loads the admission webhook handler module.
-func (h *Webhook) Provision(ctx caddy.Context) error {
-	h.logger = ctx.Logger()
+// Provision sets up the handler and loads the admission controller module.
+func (wh *Webhook) Provision(ctx caddy.Context) error {
+	wh.logger = ctx.Logger()
 
-	if h.HandlerRaw == nil {
-		return fmt.Errorf("admission webhook handler module is required")
+	if wh.ControllerRaw == nil {
+		return fmt.Errorf("admission controller module is required")
 	}
 
-	val, err := ctx.LoadModule(h, "HandlerRaw")
+	val, err := ctx.LoadModule(wh, "ControllerRaw")
 	if err != nil {
-		return fmt.Errorf("loading admission webhook handler module: %w", err)
+		return fmt.Errorf("loading admission controller module: %w", err)
 	}
 
-	h.Handler = val.(Handler)
+	wh.Controller = val.(Controller)
 
 	return nil
 }
 
 // Validate validates the configuration.
-func (h Webhook) Validate() error {
-	if h.Handler == nil {
-		return fmt.Errorf("no admission webhook handler configured")
+func (wh Webhook) Validate() error {
+	if wh.Controller == nil {
+		return fmt.Errorf("no admission controller configured")
 	}
 
 	return nil
 }
 
 // ServeHTTP processes HTTP requests for Kubernetes admission webhooks.
-func (h Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.Handler) error {
+func (wh Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.Handler) error {
 	if r.Method != http.MethodPost {
 		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 	}
@@ -91,7 +91,7 @@ func (h Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.H
 	// Parse the admission review
 	var review admissionv1.AdmissionReview
 	if err := json.NewDecoder(r.Body).Decode(&review); err != nil {
-		h.logger.Error("failed to decode admission review", zap.Error(err))
+		wh.logger.Error("failed to decode admission review", zap.Error(err))
 
 		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("invalid admission review"))
 	}
@@ -100,7 +100,7 @@ func (h Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.H
 		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("missing admission request"))
 	}
 
-	logger := h.logger.With(zap.String("uid", string(review.Request.UID)))
+	logger := wh.logger.With(zap.String("uid", string(review.Request.UID)))
 
 	logger.Debug(
 		"processing admission review",
@@ -109,7 +109,7 @@ func (h Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.H
 	)
 
 	// Process the admission review with the configured controller
-	response := h.Handler.Admit(r.Context(), review)
+	response := wh.Controller.Admit(r.Context(), review)
 
 	// Ensure the response has the correct UID
 	if response != nil {
@@ -147,19 +147,19 @@ func (h Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.H
 }
 
 // UnmarshalCaddyfile implements caddyfile.Unmarshaler.
-func (h *Webhook) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (wh *Webhook) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.Next() // consume directive name
 
-	// Expect handler configuration
+	// Expect controller configuration
 	if !d.NextArg() {
 		return d.ArgErr()
 	}
 
-	handlerType := d.Val()
+	controllerType := d.Val()
 
-	// Create basic handler configuration
-	handlerConfig := map[string]any{
-		"handler_type": handlerType,
+	// Create basic controller configuration
+	controllerConfig := map[string]any{
+		"controller_type": controllerType,
 	}
 
 	// Parse any additional configuration blocks
@@ -169,14 +169,14 @@ func (h *Webhook) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			return d.ArgErr()
 		}
 		value := d.Val()
-		handlerConfig[key] = value
+		controllerConfig[key] = value
 	}
 
 	// Marshal the configuration
 	var err error
-	h.HandlerRaw, err = json.Marshal(handlerConfig)
+	wh.ControllerRaw, err = json.Marshal(controllerConfig)
 	if err != nil {
-		return fmt.Errorf("marshaling admission webhook handler config: %v", err)
+		return fmt.Errorf("marshaling admission controller config: %v", err)
 	}
 
 	return nil
@@ -184,8 +184,9 @@ func (h *Webhook) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 // parseCaddyfile unmarshals tokens from h into a new [Webhook].
 func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	admission := &Webhook{}
+	admission := new(Webhook)
 	err := admission.UnmarshalCaddyfile(h.Dispenser)
+
 	return admission, err
 }
 
