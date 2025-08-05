@@ -39,6 +39,17 @@ example.com {
 }
 ```
 
+### Validation Policy
+
+```caddyfile
+example.com {
+    k8s_admission validation_policy {
+        expression "requestNamespace != 'kube-system'"
+        action deny
+    }
+}
+```
+
 ## Built-in Handlers
 
 ### `always_allow`
@@ -68,6 +79,41 @@ k8s_admission annotation_injector {
     custom.example.com/environment production
 }
 ```
+
+### `validation_policy`
+
+Validates resources using CEL (Common Expression Language) expressions and takes configurable actions.
+
+```caddyfile
+# Deny pods in the kube-system namespace
+k8s_admission validation_policy {
+    expression "requestNamespace == 'kube-system'"
+    action deny
+}
+
+# Allow only pods with specific naming convention
+k8s_admission validation_policy {
+    expression "name.startsWith('prod-')"
+    action allow
+}
+
+# Complex validation with multiple conditions
+k8s_admission validation_policy {
+    expression "operation == 'CREATE' && requestNamespace == 'production' && has(object.metadata) && object.metadata.name.startsWith('critical-')"
+    action deny
+}
+```
+
+**Available Variables in CEL Expressions:**
+- `name` - The resource name (string)
+- `requestNamespace` - The resource namespace (string)
+- `operation` - The admission operation (CREATE, UPDATE, DELETE)
+- `object` - The current resource object (map)
+- `oldObject` - The previous resource object for UPDATE operations (map)
+
+**Actions:**
+- `allow` - Allow the request when the expression matches
+- `deny` - Deny the request when the expression matches
 
 ## Kubernetes Configuration
 
