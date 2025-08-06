@@ -27,11 +27,11 @@ example.com {
 }
 ```
 
-### Validation Policy
+### CEL Policy
 
 ```caddyfile
 example.com {
-    k8s_admission validation_policy {
+    k8s_admission cel_policy {
         expression "requestNamespace != 'kube-system'"
         action deny
     }
@@ -75,25 +75,25 @@ A simple controller that always denies admission requests. Useful for testing or
 k8s_admission always_deny
 ```
 
-### `validation_policy`
+### `cel_policy`
 
 Validates resources using CEL (Common Expression Language) expressions and takes configurable actions.
 
 ```caddyfile
 # Deny pods in the kube-system namespace
-k8s_admission validation_policy {
+k8s_admission cel_policy {
     expression "requestNamespace == 'kube-system'"
     action deny
 }
 
 # Allow only pods with specific naming convention
-k8s_admission validation_policy {
+k8s_admission cel_policy {
     expression "name.startsWith('prod-')"
     action allow
 }
 
 # Complex validation with multiple conditions
-k8s_admission validation_policy {
+k8s_admission cel_policy {
     expression "operation == 'CREATE' && requestNamespace == 'production' && has(object.metadata) && object.metadata.name.startsWith('critical-')"
     action deny
 }
@@ -248,7 +248,7 @@ Here's a comprehensive example showing multiple controllers working together:
 
     # Validation endpoint - deny pods in kube-system
     route /validate {
-        k8s_admission validation_policy {
+        k8s_admission cel_policy {
             expression "requestNamespace == 'kube-system'"
             action deny
         }

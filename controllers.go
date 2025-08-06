@@ -16,7 +16,7 @@ import (
 func init() {
 	caddy.RegisterModule(AlwaysAllow{})
 	caddy.RegisterModule(AlwaysDeny{})
-	caddy.RegisterModule(ValidationPolicy{})
+	caddy.RegisterModule(CelPolicy{})
 	caddy.RegisterModule(JSONPatch{})
 	caddy.RegisterModule(JSONPatches{})
 }
@@ -90,10 +90,10 @@ const (
 	PolicyActionDeny PolicyAction = "deny"
 )
 
-// ValidationPolicy is an admission webhook controller that validates resources using CEL expressions.
+// CelPolicy is an admission webhook controller that validates resources using CEL expressions.
 //
 // It evaluates the provided expression against the resource and takes the specified action.
-type ValidationPolicy struct {
+type CelPolicy struct {
 	// Expression is the validation expression to evaluate against the resource.
 	Expression string `json:"expression,omitempty"`
 
@@ -104,15 +104,15 @@ type ValidationPolicy struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (ValidationPolicy) CaddyModule() caddy.ModuleInfo {
+func (CelPolicy) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "k8s.admission.validation_policy",
-		New: func() caddy.Module { return new(ValidationPolicy) },
+		ID:  "k8s.admission.cel_policy",
+		New: func() caddy.Module { return new(CelPolicy) },
 	}
 }
 
-// Provision sets up the validation policy.
-func (vp *ValidationPolicy) Provision(_ caddy.Context) error {
+// Provision sets up the CEL policy.
+func (vp *CelPolicy) Provision(_ caddy.Context) error {
 	env, err := cel.NewEnv(
 		cel.Variable("name", cel.StringType),                                // optional
 		cel.Variable("requestNamespace", cel.StringType),                    // optional
@@ -144,7 +144,7 @@ func (vp *ValidationPolicy) Provision(_ caddy.Context) error {
 }
 
 // UnmarshalCaddyfile implements [caddyfile.Unmarshaler].
-func (vp *ValidationPolicy) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (vp *CelPolicy) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.Next()
 
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
@@ -175,10 +175,10 @@ func (vp *ValidationPolicy) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-// Admit processes an admission review and evaluates the validation policy.
+// Admit processes an admission review and evaluates the CEL policy.
 //
 // Implements the [Controller] interface.
-func (vp ValidationPolicy) Admit(
+func (vp CelPolicy) Admit(
 	ctx context.Context,
 	review admissionv1.AdmissionReview,
 ) (*admissionv1.AdmissionResponse, error) {
@@ -238,9 +238,9 @@ func (vp ValidationPolicy) Admit(
 
 // Interface guards
 var (
-	_ Controller            = (*ValidationPolicy)(nil)
-	_ caddy.Provisioner     = (*ValidationPolicy)(nil)
-	_ caddyfile.Unmarshaler = (*ValidationPolicy)(nil)
+	_ Controller            = (*CelPolicy)(nil)
+	_ caddy.Provisioner     = (*CelPolicy)(nil)
+	_ caddyfile.Unmarshaler = (*CelPolicy)(nil)
 )
 
 // JSONPatch is an admission webhook controller that applies a single JSON Patch operation to resources.

@@ -199,9 +199,9 @@ func TestControllersModuleRegistration(t *testing.T) {
 			module:   &AlwaysDeny{},
 		},
 		{
-			name:     "ValidationPolicy",
-			moduleID: "k8s.admission.validation_policy",
-			module:   &ValidationPolicy{},
+			name:     "CelPolicy",
+			moduleID: "k8s.admission.cel_policy",
+			module:   &CelPolicy{},
 		},
 		{
 			name:     "JSONPatch",
@@ -224,21 +224,21 @@ func TestControllersModuleRegistration(t *testing.T) {
 	}
 }
 
-func TestValidationPolicy_CaddyModule(t *testing.T) {
-	policy := ValidationPolicy{}
+func TestCelPolicy_CaddyModule(t *testing.T) {
+	policy := CelPolicy{}
 	moduleInfo := policy.CaddyModule()
 
-	assert.Equal(t, caddy.ModuleID("k8s.admission.validation_policy"), moduleInfo.ID)
+	assert.Equal(t, caddy.ModuleID("k8s.admission.cel_policy"), moduleInfo.ID)
 	require.NotNil(t, moduleInfo.New, "Module constructor should not be nil")
 	assert.IsType(
 		t,
-		new(ValidationPolicy),
+		new(CelPolicy),
 		moduleInfo.New(),
-		"Module constructor should return ValidationPolicy instance",
+		"Module constructor should return CelPolicy instance",
 	)
 }
 
-func TestValidationPolicy_Provision(t *testing.T) {
+func TestCelPolicy_Provision(t *testing.T) {
 	testCases := []struct {
 		name        string
 		expression  string
@@ -278,7 +278,7 @@ func TestValidationPolicy_Provision(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			policy := &ValidationPolicy{
+			policy := &CelPolicy{
 				Expression: testCase.expression,
 				Action:     PolicyActionAllow,
 			}
@@ -296,7 +296,7 @@ func TestValidationPolicy_Provision(t *testing.T) {
 	}
 }
 
-func TestValidationPolicy_UnmarshalCaddyfile(t *testing.T) {
+func TestCelPolicy_UnmarshalCaddyfile(t *testing.T) {
 	testCases := []struct {
 		name           string
 		input          string
@@ -307,7 +307,7 @@ func TestValidationPolicy_UnmarshalCaddyfile(t *testing.T) {
 	}{
 		{
 			name: "valid policy with allow action",
-			input: `validation_policy {
+			input: `cel_policy {
 				expression "name == 'allowed-pod'"
 				action allow
 			}`,
@@ -317,7 +317,7 @@ func TestValidationPolicy_UnmarshalCaddyfile(t *testing.T) {
 		},
 		{
 			name: "valid policy with deny action",
-			input: `validation_policy {
+			input: `cel_policy {
 				expression "operation == 'DELETE'"
 				action deny
 			}`,
@@ -327,7 +327,7 @@ func TestValidationPolicy_UnmarshalCaddyfile(t *testing.T) {
 		},
 		{
 			name: "invalid action",
-			input: `validation_policy {
+			input: `cel_policy {
 				expression "true"
 				action invalid
 			}`,
@@ -336,7 +336,7 @@ func TestValidationPolicy_UnmarshalCaddyfile(t *testing.T) {
 		},
 		{
 			name: "unknown directive",
-			input: `validation_policy {
+			input: `cel_policy {
 				unknown_directive value
 			}`,
 			expectError:    true,
@@ -344,14 +344,14 @@ func TestValidationPolicy_UnmarshalCaddyfile(t *testing.T) {
 		},
 		{
 			name: "missing expression argument",
-			input: `validation_policy {
+			input: `cel_policy {
 				expression
 			}`,
 			expectError: true,
 		},
 		{
 			name: "missing action argument",
-			input: `validation_policy {
+			input: `cel_policy {
 				action
 			}`,
 			expectError: true,
@@ -360,7 +360,7 @@ func TestValidationPolicy_UnmarshalCaddyfile(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			policy := &ValidationPolicy{}
+			policy := &CelPolicy{}
 			d := caddyfile.NewTestDispenser(testCase.input)
 
 			err := policy.UnmarshalCaddyfile(d)
@@ -379,7 +379,7 @@ func TestValidationPolicy_UnmarshalCaddyfile(t *testing.T) {
 	}
 }
 
-func TestValidationPolicy_Admit(t *testing.T) {
+func TestCelPolicy_Admit(t *testing.T) {
 	uid := "test-uid"
 
 	testCases := []struct {
@@ -562,7 +562,7 @@ func TestValidationPolicy_Admit(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			policy := &ValidationPolicy{
+			policy := &CelPolicy{
 				Expression: testCase.expression,
 				Action:     testCase.action,
 			}
@@ -589,7 +589,7 @@ func TestValidationPolicy_Admit(t *testing.T) {
 	}
 }
 
-func TestValidationPolicy_PolicyActions(t *testing.T) {
+func TestCelPolicy_PolicyActions(t *testing.T) {
 	uid := "test-uid"
 
 	testCases := []struct {
@@ -632,7 +632,7 @@ func TestValidationPolicy_PolicyActions(t *testing.T) {
 				expression = "false"
 			}
 
-			policy := &ValidationPolicy{
+			policy := &CelPolicy{
 				Expression: expression,
 				Action:     testCase.action,
 			}
@@ -656,8 +656,8 @@ func TestValidationPolicy_PolicyActions(t *testing.T) {
 	}
 }
 
-func TestValidationPolicy_ContextCancellation(t *testing.T) {
-	policy := &ValidationPolicy{
+func TestCelPolicy_ContextCancellation(t *testing.T) {
+	policy := &CelPolicy{
 		Expression: "true",
 		Action:     PolicyActionAllow,
 	}
@@ -688,20 +688,20 @@ func TestValidationPolicy_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestValidationPolicy_IntegrationExample(t *testing.T) {
-	// This test demonstrates practical usage of ValidationPolicy
+func TestCelPolicy_IntegrationExample(t *testing.T) {
+	// This test demonstrates practical usage of CelPolicy
 	uid := "integration-test-uid"
 
 	testCases := []struct {
 		name          string
-		policy        ValidationPolicy
+		policy        CelPolicy
 		request       admissionv1.AdmissionRequest
 		expectAllowed bool
 		description   string
 	}{
 		{
 			name: "deny pods in kube-system namespace",
-			policy: ValidationPolicy{
+			policy: CelPolicy{
 				Expression: "requestNamespace == 'kube-system'",
 				Action:     PolicyActionDeny,
 			},
@@ -720,7 +720,7 @@ func TestValidationPolicy_IntegrationExample(t *testing.T) {
 		},
 		{
 			name: "allow pods in regular namespace",
-			policy: ValidationPolicy{
+			policy: CelPolicy{
 				Expression: "requestNamespace == 'kube-system'",
 				Action:     PolicyActionDeny,
 			},
@@ -739,7 +739,7 @@ func TestValidationPolicy_IntegrationExample(t *testing.T) {
 		},
 		{
 			name: "enforce naming convention",
-			policy: ValidationPolicy{
+			policy: CelPolicy{
 				Expression: "!name.startsWith('prod-')",
 				Action:     PolicyActionDeny,
 			},
@@ -756,7 +756,7 @@ func TestValidationPolicy_IntegrationExample(t *testing.T) {
 		},
 		{
 			name: "allow pods with correct naming",
-			policy: ValidationPolicy{
+			policy: CelPolicy{
 				Expression: "!name.startsWith('prod-')",
 				Action:     PolicyActionDeny,
 			},
@@ -775,7 +775,7 @@ func TestValidationPolicy_IntegrationExample(t *testing.T) {
 		},
 		{
 			name: "block critical operations in production",
-			policy: ValidationPolicy{
+			policy: CelPolicy{
 				Expression: "operation == 'DELETE' && requestNamespace == 'production' && has(object.metadata.labels) && 'critical' in object.metadata.labels",
 				Action:     PolicyActionDeny,
 			},

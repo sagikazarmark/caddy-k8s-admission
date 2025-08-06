@@ -333,7 +333,7 @@ func TestWebhook_UnmarshalCaddyfile_ErrorHandling(t *testing.T) {
 					unknown_directive
 				}
 			}`,
-			errorMsg: "unknown patch directive",
+			errorMsg: "unknown directive: unknown_directive",
 		},
 	}
 

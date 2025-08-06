@@ -68,26 +68,26 @@ func TestCaddyfileIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("validation_policy", func(t *testing.T) {
-		// Test CREATE operation - should be denied by validation policy
+	t.Run("cel_policy", func(t *testing.T) {
+		// Test CREATE operation - should be denied by CEL policy
 		createReview := createTestAdmissionReview(t, "CREATE", nil)
 		createResp := sendAdmissionRequest(t, tester, "/deny/create", createReview)
 
 		assert.False(
 			t,
 			createResp.Response.Allowed,
-			"CREATE operations should be denied by validation policy",
+			"CREATE operations should be denied by CEL policy",
 		)
 		assert.Equal(t, createReview.Request.UID, createResp.Response.UID, "UID mismatch")
 
-		// Test UPDATE operation - should be allowed by validation policy
+		// Test UPDATE operation - should be allowed by CEL policy
 		updateReview := createTestAdmissionReview(t, "UPDATE", nil)
 		updateResp := sendAdmissionRequest(t, tester, "/deny/create", updateReview)
 
 		assert.True(
 			t,
 			updateResp.Response.Allowed,
-			"UPDATE operations should be allowed by validation policy",
+			"UPDATE operations should be allowed by CEL policy",
 		)
 		assert.Equal(t, updateReview.Request.UID, updateResp.Response.UID, "UID mismatch")
 	})
@@ -146,7 +146,12 @@ func TestCaddyfileIntegration(t *testing.T) {
 
 		patch := patches[0]
 		assert.Equal(t, "add", patch["op"], "Expected add operation")
-		assert.Equal(t, "/metadata/labels/single-patch", patch["path"], "Expected correct patch path")
+		assert.Equal(
+			t,
+			"/metadata/labels/single-patch",
+			patch["path"],
+			"Expected correct patch path",
+		)
 		assert.Equal(t, "applied", patch["value"], "Expected correct patch value")
 	})
 
@@ -217,13 +222,28 @@ func TestCaddyfileIntegration(t *testing.T) {
 		// Verify first patch
 		patch1 := patches[0]
 		assert.Equal(t, "add", patch1["op"], "Expected add operation for first patch")
-		assert.Equal(t, "/metadata/labels/mutated-by", patch1["path"], "Expected correct path for first patch")
-		assert.Equal(t, "caddy-admission-webhook", patch1["value"], "Expected correct value for first patch")
+		assert.Equal(
+			t,
+			"/metadata/labels/mutated-by",
+			patch1["path"],
+			"Expected correct path for first patch",
+		)
+		assert.Equal(
+			t,
+			"caddy-admission-webhook",
+			patch1["value"],
+			"Expected correct value for first patch",
+		)
 
 		// Verify second patch
 		patch2 := patches[1]
 		assert.Equal(t, "add", patch2["op"], "Expected add operation for second patch")
-		assert.Equal(t, "/metadata/labels/caddy-admission-controller", patch2["path"], "Expected correct path for second patch")
+		assert.Equal(
+			t,
+			"/metadata/labels/caddy-admission-controller",
+			patch2["path"],
+			"Expected correct path for second patch",
+		)
 		assert.Equal(t, "json_patches", patch2["value"], "Expected correct value for second patch")
 	})
 }
