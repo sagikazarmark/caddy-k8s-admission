@@ -92,6 +92,64 @@ func TestCaddyfileIntegration(t *testing.T) {
 		assert.Equal(t, updateReview.Request.UID, updateResp.Response.UID, "UID mismatch")
 	})
 
+	t.Run("json_patch", func(t *testing.T) {
+		review := createTestAdmissionReview(t, "CREATE", map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Pod",
+			"metadata": map[string]any{
+				"name":      "test-pod",
+				"namespace": "default",
+				"labels": map[string]any{
+					"existing-label": "existing-value",
+					"app":            "test-app",
+				},
+			},
+			"spec": map[string]any{
+				"containers": []any{
+					map[string]any{
+						"name":  "test-container",
+						"image": "nginx:latest",
+					},
+				},
+			},
+		})
+		resp := sendAdmissionRequest(t, tester, "/patch", review)
+
+		assert.True(t, resp.Response.Allowed, "Expected request to be allowed")
+		assert.Equal(t, review.Request.UID, resp.Response.UID, "UID mismatch")
+
+		// Check that patch was applied
+		require.NotNil(t, resp.Response.Patch, "Expected patch to be applied")
+		require.NotNil(t, resp.Response.PatchType, "Expected patch type to be set")
+		assert.Equal(
+			t,
+			admissionv1.PatchTypeJSONPatch,
+			*resp.Response.PatchType,
+			"Expected JSONPatch type",
+		)
+
+		// Verify the patch content contains the expected mutation
+		patchStr := string(resp.Response.Patch)
+		assert.Contains(t, patchStr, "single-patch", "Expected patch to contain single-patch label")
+		assert.Contains(
+			t,
+			patchStr,
+			"applied",
+			"Expected patch to contain applied value",
+		)
+
+		// Parse and validate the patch structure
+		var patches []map[string]any
+		err := json.Unmarshal(resp.Response.Patch, &patches)
+		require.NoError(t, err, "Failed to parse patch JSON")
+		require.Len(t, patches, 1, "Expected exactly one patch operation")
+
+		patch := patches[0]
+		assert.Equal(t, "add", patch["op"], "Expected add operation")
+		assert.Equal(t, "/metadata/labels/single-patch", patch["path"], "Expected correct patch path")
+		assert.Equal(t, "applied", patch["value"], "Expected correct patch value")
+	})
+
 	t.Run("json_patches", func(t *testing.T) {
 		review := createTestAdmissionReview(t, "CREATE", map[string]any{
 			"apiVersion": "v1",
@@ -113,7 +171,7 @@ func TestCaddyfileIntegration(t *testing.T) {
 				},
 			},
 		})
-		resp := sendAdmissionRequest(t, tester, "/mutate", review)
+		resp := sendAdmissionRequest(t, tester, "/patches", review)
 
 		assert.True(t, resp.Response.Allowed, "Expected request to be allowed")
 		assert.Equal(t, review.Request.UID, resp.Response.UID, "UID mismatch")
@@ -128,7 +186,7 @@ func TestCaddyfileIntegration(t *testing.T) {
 			"Expected JSONPatch type",
 		)
 
-		// Verify the patch content contains the expected mutation
+		// Verify the patch content contains the expected mutations
 		patchStr := string(resp.Response.Patch)
 		assert.Contains(t, patchStr, "mutated-by", "Expected patch to contain mutated-by label")
 		assert.Contains(
@@ -137,17 +195,36 @@ func TestCaddyfileIntegration(t *testing.T) {
 			"caddy-admission-webhook",
 			"Expected patch to contain webhook identifier",
 		)
+		assert.Contains(
+			t,
+			patchStr,
+			"caddy-admission-controller",
+			"Expected patch to contain controller label",
+		)
+		assert.Contains(
+			t,
+			patchStr,
+			"json_patches",
+			"Expected patch to contain json_patches value",
+		)
 
 		// Parse and validate the patch structure
 		var patches []map[string]any
 		err := json.Unmarshal(resp.Response.Patch, &patches)
 		require.NoError(t, err, "Failed to parse patch JSON")
-		require.Len(t, patches, 1, "Expected exactly one patch operation")
+		require.Len(t, patches, 2, "Expected exactly two patch operations")
 
-		patch := patches[0]
-		assert.Equal(t, "add", patch["op"], "Expected add operation")
-		assert.Equal(t, "/metadata/labels/mutated-by", patch["path"], "Expected correct patch path")
-		assert.Equal(t, "caddy-admission-webhook", patch["value"], "Expected correct patch value")
+		// Verify first patch
+		patch1 := patches[0]
+		assert.Equal(t, "add", patch1["op"], "Expected add operation for first patch")
+		assert.Equal(t, "/metadata/labels/mutated-by", patch1["path"], "Expected correct path for first patch")
+		assert.Equal(t, "caddy-admission-webhook", patch1["value"], "Expected correct value for first patch")
+
+		// Verify second patch
+		patch2 := patches[1]
+		assert.Equal(t, "add", patch2["op"], "Expected add operation for second patch")
+		assert.Equal(t, "/metadata/labels/caddy-admission-controller", patch2["path"], "Expected correct path for second patch")
+		assert.Equal(t, "json_patches", patch2["value"], "Expected correct value for second patch")
 	})
 }
 

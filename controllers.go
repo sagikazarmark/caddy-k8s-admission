@@ -17,6 +17,7 @@ func init() {
 	caddy.RegisterModule(AlwaysAllow{})
 	caddy.RegisterModule(AlwaysDeny{})
 	caddy.RegisterModule(ValidationPolicy{})
+	caddy.RegisterModule(JSONPatch{})
 	caddy.RegisterModule(JSONPatches{})
 }
 
@@ -242,7 +243,10 @@ var (
 	_ caddyfile.Unmarshaler = (*ValidationPolicy)(nil)
 )
 
-// JSONPatch represents a single JSON Patch operation.
+// JSONPatch is an admission webhook controller that applies a single JSON Patch operation to resources.
+//
+// It applies one JSON Patch operation to incoming resources.
+// Supports all standard JSON Patch operations: add, remove, replace, move, copy, test.
 type JSONPatch struct {
 	// Op is the operation to perform (add, remove, replace, move, copy, test).
 	Op string `json:"op"`
@@ -255,6 +259,14 @@ type JSONPatch struct {
 
 	// From is the source path for move and copy operations.
 	From string `json:"from,omitempty"`
+}
+
+// CaddyModule returns the Caddy module information.
+func (JSONPatch) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "k8s.admission.json_patch",
+		New: func() caddy.Module { return new(JSONPatch) },
+	}
 }
 
 // Validate validates a single JSON patch operation.
@@ -289,13 +301,99 @@ func (p JSONPatch) Validate() error {
 	return nil
 }
 
+// UnmarshalCaddyfile implements [caddyfile.Unmarshaler].
+func (p *JSONPatch) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next()
+
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		switch d.Val() {
+		case "op":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			p.Op = d.Val()
+		case "path":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			p.Path = d.Val()
+		case "value":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+
+			// Handle multiple values as array
+			values := []string{d.Val()}
+			for d.NextArg() {
+				values = append(values, d.Val())
+			}
+
+			var value any
+			if len(values) == 1 {
+				// Single value - try to parse as JSON, fallback to string
+				if err := json.Unmarshal([]byte(values[0]), &value); err != nil {
+					value = values[0]
+				}
+			} else {
+				// Multiple values - create array, attempting JSON parse for each
+				var parsedValues []any
+				for _, v := range values {
+					var parsed any
+					if err := json.Unmarshal([]byte(v), &parsed); err != nil {
+						parsed = v
+					}
+					parsedValues = append(parsedValues, parsed)
+				}
+				value = parsedValues
+			}
+			p.Value = value
+		case "from":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			p.From = d.Val()
+		default:
+			return d.Errf("unknown directive: %s", d.Val())
+		}
+	}
+
+	return nil
+}
+
+// Admit processes an admission review and applies the configured JSON patch.
+//
+// Implements the [Controller] interface.
+func (p JSONPatch) Admit(
+	_ context.Context,
+	review admissionv1.AdmissionReview,
+) (*admissionv1.AdmissionResponse, error) {
+	// Convert patch to JSON
+	patches := []JSONPatch{p}
+	patch, err := json.Marshal(patches)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling patch: %w", err)
+	}
+
+	patchType := admissionv1.PatchTypeJSONPatch
+
+	return &admissionv1.AdmissionResponse{
+		UID:       review.Request.UID,
+		Allowed:   true,
+		Patch:     patch,
+		PatchType: &patchType,
+	}, nil
+}
+
 // JSONPatches is an admission webhook controller that applies custom JSON patches to resources.
 //
 // It accepts a list of JSON Patch operations and applies them to incoming resources.
 // Supports all standard JSON Patch operations: add, remove, replace, move, copy, test.
 type JSONPatches struct {
-	// Patches is a list of JSON Patch operations to apply to resources.
-	Patches []JSONPatch `json:"patches,omitempty"`
+	// PatchesRaw holds the raw JSON configuration for the JSON patch controllers.
+	PatchesRaw []json.RawMessage `json:"patches,omitempty" caddy:"namespace=k8s.admission inline_key=controller_type"`
+
+	// Patches is the list of loaded JSON patch controllers.
+	Patches []JSONPatch `json:"-"`
 }
 
 // CaddyModule returns the Caddy module information.
@@ -308,8 +406,21 @@ func (JSONPatches) CaddyModule() caddy.ModuleInfo {
 
 // Provision sets up the JSON patch controller.
 func (j *JSONPatches) Provision(_ caddy.Context) error {
+	if j.PatchesRaw == nil {
+		j.PatchesRaw = make([]json.RawMessage, 0)
+	}
+
 	if j.Patches == nil {
 		j.Patches = make([]JSONPatch, 0)
+	}
+
+	// Manually unmarshal each patch configuration
+	for i, patchRaw := range j.PatchesRaw {
+		var patch JSONPatch
+		if err := json.Unmarshal(patchRaw, &patch); err != nil {
+			return fmt.Errorf("unmarshaling patch %d: %w", i, err)
+		}
+		j.Patches = append(j.Patches, patch)
 	}
 
 	return nil
@@ -330,8 +441,8 @@ func (j JSONPatches) Validate() error {
 
 // UnmarshalCaddyfile implements [caddyfile.Unmarshaler].
 func (j *JSONPatches) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	if j.Patches == nil {
-		j.Patches = make([]JSONPatch, 0)
+	if j.PatchesRaw == nil {
+		j.PatchesRaw = make([]json.RawMessage, 0)
 	}
 
 	d.Next()
@@ -339,7 +450,8 @@ func (j *JSONPatches) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		switch d.Val() {
 		case "patch":
-			patch := JSONPatch{}
+			// Create a new JSONPatch and unmarshal it
+			patch := new(JSONPatch)
 
 			// Parse patch block
 			for nesting := d.Nesting(); d.NextBlock(nesting); {
@@ -394,7 +506,13 @@ func (j *JSONPatches) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				}
 			}
 
-			j.Patches = append(j.Patches, patch)
+			// Store the patch configuration as raw JSON
+			patchJSON, err := json.Marshal(patch)
+			if err != nil {
+				return fmt.Errorf("marshaling patch: %w", err)
+			}
+
+			j.PatchesRaw = append(j.PatchesRaw, patchJSON)
 		default:
 			return d.Errf("unknown directive: %s", d.Val())
 		}
@@ -436,6 +554,9 @@ func (j JSONPatches) Admit(
 
 // Interface guards
 var (
+	_ Controller            = (*JSONPatch)(nil)
+	_ caddy.Validator       = (*JSONPatch)(nil)
+	_ caddyfile.Unmarshaler = (*JSONPatch)(nil)
 	_ Controller            = (*JSONPatches)(nil)
 	_ caddy.Provisioner     = (*JSONPatches)(nil)
 	_ caddy.Validator       = (*JSONPatches)(nil)

@@ -19,13 +19,29 @@ localhost {
     	}
 	}
 
-	route /mutate {
+	# Single JSON patch - adds a single label
+	route /patch {
+		k8s_admission json_patch {
+			op add
+			path "/metadata/labels/single-patch"
+			value "applied"
+		}
+	}
+
+	# Apply multiple JSON patches
+	route /patches {
 		k8s_admission json_patches {
 			patch {
 				op add
 				path "/metadata/labels/mutated-by"
 				value "caddy-admission-webhook"
 			}
+			patch {
+				op add
+				path "/metadata/labels/caddy-admission-controller"
+				value "json_patches"
+			}
 		}
 	}
+
 }

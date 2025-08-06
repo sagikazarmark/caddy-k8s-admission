@@ -110,9 +110,42 @@ k8s_admission validation_policy {
 - `allow` - Allow the request when the expression matches
 - `deny` - Deny the request when the expression matches
 
+### `json_patch`
+
+Applies a single JSON Patch operation to Kubernetes resources. Supports all standard JSON Patch operations: add, remove, replace, move, copy, and test.
+
+```caddyfile
+# Add a single label
+k8s_admission json_patch {
+    op "add"
+    path "/metadata/labels/managed-by"
+    value "caddy-admission-webhook"
+}
+
+# Remove an annotation
+k8s_admission json_patch {
+    op "remove"
+    path "/metadata/annotations/unwanted-annotation"
+}
+
+# Replace resource limits
+k8s_admission json_patch {
+    op "replace"
+    path "/spec/template/spec/containers/0/resources"
+    value {"limits":{"memory":"512Mi","cpu":"500m"},"requests":{"memory":"256Mi","cpu":"250m"}}
+}
+
+# Move a label
+k8s_admission json_patch {
+    op "move"
+    path "/metadata/labels/new-label"
+    from "/metadata/labels/old-label"
+}
+```
+
 ### `json_patches`
 
-Applies custom JSON Patch operations to Kubernetes resources. Supports all standard JSON Patch operations: add, remove, replace, move, copy, and test.
+Applies multiple JSON Patch operations to Kubernetes resources. Supports all standard JSON Patch operations: add, remove, replace, move, copy, and test.
 
 ```caddyfile
 # Add labels and modify replicas
@@ -249,6 +282,15 @@ Here's a comprehensive example showing multiple controllers working together:
                 path "/spec/template/spec/containers/0/resources"
                 value {"limits":{"memory":"512Mi","cpu":"500m"},"requests":{"memory":"256Mi","cpu":"250m"}}
             }
+        }
+    }
+
+    # Single patch endpoint - adds just one label
+    route /patch {
+        k8s_admission json_patch {
+            op "add"
+            path "/metadata/labels/single-patch"
+            value "applied"
         }
     }
 

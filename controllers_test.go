@@ -3,8 +3,10 @@ package admission
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -200,6 +202,11 @@ func TestControllersModuleRegistration(t *testing.T) {
 			name:     "ValidationPolicy",
 			moduleID: "k8s.admission.validation_policy",
 			module:   &ValidationPolicy{},
+		},
+		{
+			name:     "JSONPatch",
+			moduleID: "k8s.admission.json_patch",
+			module:   &JSONPatch{},
 		},
 		{
 			name:     "JSONPatches",
@@ -816,6 +823,220 @@ func TestValidationPolicy_IntegrationExample(t *testing.T) {
 	}
 }
 
+func TestJSONPatch_CaddyModule(t *testing.T) {
+	// Test that the JSONPatch properly implements Caddy module interface
+	module := JSONPatch{}
+	moduleInfo := module.CaddyModule()
+
+	assert.Equal(t, caddy.ModuleID("k8s.admission.json_patch"), moduleInfo.ID)
+	require.NotNil(t, moduleInfo.New, "Module constructor should not be nil")
+	assert.IsType(
+		t,
+		new(JSONPatch),
+		moduleInfo.New(),
+		"Module constructor should return JSONPatch instance",
+	)
+}
+
+func TestJSONPatch_UnmarshalCaddyfile(t *testing.T) {
+	testCases := []struct {
+		name          string
+		input         string
+		expectedOp    string
+		expectedPath  string
+		expectedValue any
+		expectedFrom  string
+		expectError   bool
+		errorMsg      string
+	}{
+		{
+			name: "simple add operation",
+			input: `json_patch {
+				op add
+				path "/metadata/labels/test"
+				value "test-value"
+			}`,
+			expectedOp:    "add",
+			expectedPath:  "/metadata/labels/test",
+			expectedValue: "test-value",
+		},
+		{
+			name: "remove operation",
+			input: `json_patch {
+				op remove
+				path "/metadata/annotations/unwanted"
+			}`,
+			expectedOp:   "remove",
+			expectedPath: "/metadata/annotations/unwanted",
+		},
+		{
+			name: "replace operation with number",
+			input: `json_patch {
+				op replace
+				path "/spec/replicas"
+				value 3
+			}`,
+			expectedOp:    "replace",
+			expectedPath:  "/spec/replicas",
+			expectedValue: float64(3), // JSON numbers are parsed as float64
+		},
+		{
+			name: "move operation",
+			input: `json_patch {
+				op move
+				path "/metadata/labels/new-label"
+				from "/metadata/labels/old-label"
+			}`,
+			expectedOp:   "move",
+			expectedPath: "/metadata/labels/new-label",
+			expectedFrom: "/metadata/labels/old-label",
+		},
+		{
+			name: "array values",
+			input: `json_patch {
+				op add
+				path "/spec/ports"
+				value 8080 8443 9090
+			}`,
+			expectedOp:    "add",
+			expectedPath:  "/spec/ports",
+			expectedValue: []any{float64(8080), float64(8443), float64(9090)},
+		},
+		{
+			name: "JSON object value",
+			input: `json_patch {
+				op add
+				path "/metadata/annotations/config"
+				value {"key":"value","nested":{"data":true}}
+			}`,
+			expectedOp:   "add",
+			expectedPath: "/metadata/annotations/config",
+			expectedValue: map[string]any{
+				"key": "value",
+				"nested": map[string]any{
+					"data": true,
+				},
+			},
+		},
+		{
+			name: "unknown directive error",
+			input: `json_patch {
+				op add
+				path "/test"
+				unknown_directive
+			}`,
+			expectError: true,
+			errorMsg:    "unknown directive",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			d := caddyfile.NewTestDispenser(testCase.input)
+			patch := &JSONPatch{}
+
+			err := patch.UnmarshalCaddyfile(d)
+
+			if testCase.expectError {
+				require.Error(t, err)
+				if testCase.errorMsg != "" {
+					assert.Contains(t, err.Error(), testCase.errorMsg)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expectedOp, patch.Op)
+			assert.Equal(t, testCase.expectedPath, patch.Path)
+			assert.Equal(t, testCase.expectedFrom, patch.From)
+
+			if testCase.expectedValue != nil {
+				assert.Equal(t, testCase.expectedValue, patch.Value)
+			}
+		})
+	}
+}
+
+func TestJSONPatch_Admit(t *testing.T) {
+	testCases := []struct {
+		name        string
+		patch       JSONPatch
+		expectAllow bool
+		expectPatch bool
+	}{
+		{
+			name: "add operation",
+			patch: JSONPatch{
+				Op:    "add",
+				Path:  "/metadata/labels/test",
+				Value: "test-value",
+			},
+			expectAllow: true,
+			expectPatch: true,
+		},
+		{
+			name: "remove operation",
+			patch: JSONPatch{
+				Op:   "remove",
+				Path: "/metadata/labels/unwanted",
+			},
+			expectAllow: true,
+			expectPatch: true,
+		},
+		{
+			name: "replace with object",
+			patch: JSONPatch{
+				Op:   "replace",
+				Path: "/spec/template/spec/containers/0/resources",
+				Value: map[string]any{
+					"limits": map[string]any{
+						"memory": "512Mi",
+						"cpu":    "500m",
+					},
+				},
+			},
+			expectAllow: true,
+			expectPatch: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			review := createTestAdmissionReview(t, "CREATE", map[string]any{
+				"apiVersion": "v1",
+				"kind":       "Pod",
+				"metadata": map[string]any{
+					"name":      "test-pod",
+					"namespace": "default",
+				},
+			})
+
+			response, err := testCase.patch.Admit(context.Background(), *review)
+
+			require.NoError(t, err)
+			require.NotNil(t, response)
+			assert.Equal(t, testCase.expectAllow, response.Allowed)
+			assert.Equal(t, review.Request.UID, response.UID)
+
+			if testCase.expectPatch {
+				require.NotNil(t, response.Patch)
+				require.NotNil(t, response.PatchType)
+				assert.Equal(t, admissionv1.PatchTypeJSONPatch, *response.PatchType)
+
+				// Verify patch structure
+				var patches []JSONPatch
+				err := json.Unmarshal(response.Patch, &patches)
+				require.NoError(t, err)
+				require.Len(t, patches, 1)
+				assert.Equal(t, testCase.patch.Op, patches[0].Op)
+				assert.Equal(t, testCase.patch.Path, patches[0].Path)
+			} else {
+				assert.Nil(t, response.Patch)
+			}
+		})
+	}
+}
+
 func TestJSONPatch_Validate(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -1141,6 +1362,39 @@ func TestJSONPatches_Validate(t *testing.T) {
 	}
 }
 
+// Helper function to create a test admission review
+func createTestAdmissionReview(
+	t *testing.T,
+	operation string,
+	objectData map[string]any,
+) *admissionv1.AdmissionReview {
+	var obj runtime.RawExtension
+	if objectData != nil {
+		objJSON, err := json.Marshal(objectData)
+		require.NoError(t, err, "Failed to marshal object data")
+		obj = runtime.RawExtension{Raw: objJSON}
+	}
+
+	return &admissionv1.AdmissionReview{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "admission.k8s.io/v1",
+			Kind:       "AdmissionReview",
+		},
+		Request: &admissionv1.AdmissionRequest{
+			UID:       types.UID(fmt.Sprintf("test-uid-%s-%d", operation, time.Now().UnixNano())),
+			Operation: admissionv1.Operation(operation),
+			Namespace: "default",
+			Name:      "test-resource",
+			Kind: metav1.GroupVersionKind{
+				Group:   "",
+				Version: "v1",
+				Kind:    "Pod",
+			},
+			Object: obj,
+		},
+	}
+}
+
 func TestJSONPatches_Validate_ErrorJoining(t *testing.T) {
 	// This test specifically demonstrates the error joining behavior
 	controller := &JSONPatches{
@@ -1341,8 +1595,8 @@ func TestJSONPatches_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			controller := &JSONPatches{}
 			d := caddyfile.NewTestDispenser(testCase.input)
+			controller := &JSONPatches{}
 
 			err := controller.UnmarshalCaddyfile(d)
 
@@ -1353,6 +1607,12 @@ func TestJSONPatches_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
+
+				// Provision to load the modules
+				ctx := caddy.Context{Context: context.Background()}
+				err = controller.Provision(ctx)
+				require.NoError(t, err)
+
 				assert.Equal(t, len(testCase.expectedPatches), len(controller.Patches))
 
 				for i, expectedPatch := range testCase.expectedPatches {
@@ -1360,8 +1620,8 @@ func TestJSONPatches_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 						actualPatch := controller.Patches[i]
 						assert.Equal(t, expectedPatch.Op, actualPatch.Op, "Operation mismatch at patch %d", i)
 						assert.Equal(t, expectedPatch.Path, actualPatch.Path, "Path mismatch at patch %d", i)
-						assert.Equal(t, expectedPatch.From, actualPatch.From, "From mismatch at patch %d", i)
 						assert.Equal(t, expectedPatch.Value, actualPatch.Value, "Value mismatch at patch %d", i)
+						assert.Equal(t, expectedPatch.From, actualPatch.From, "From mismatch at patch %d", i)
 					}
 				}
 			}
