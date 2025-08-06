@@ -60,7 +60,11 @@ func TestCaddyfileIntegration(t *testing.T) {
 		assert.Equal(t, review.Request.UID, resp.Response.UID, "UID mismatch")
 		// Note: Result may be nil for simple denial responses, which is acceptable
 		if resp.Response.Result != nil {
-			assert.NotEmpty(t, resp.Response.Result.Message, "Expected denial message when result is present")
+			assert.NotEmpty(
+				t,
+				resp.Response.Result.Message,
+				"Expected denial message when result is present",
+			)
 		}
 	})
 
@@ -69,14 +73,22 @@ func TestCaddyfileIntegration(t *testing.T) {
 		createReview := createTestAdmissionReview(t, "CREATE", nil)
 		createResp := sendAdmissionRequest(t, tester, "/deny/create", createReview)
 
-		assert.False(t, createResp.Response.Allowed, "CREATE operations should be denied by validation policy")
+		assert.False(
+			t,
+			createResp.Response.Allowed,
+			"CREATE operations should be denied by validation policy",
+		)
 		assert.Equal(t, createReview.Request.UID, createResp.Response.UID, "UID mismatch")
 
 		// Test UPDATE operation - should be allowed by validation policy
 		updateReview := createTestAdmissionReview(t, "UPDATE", nil)
 		updateResp := sendAdmissionRequest(t, tester, "/deny/create", updateReview)
 
-		assert.True(t, updateResp.Response.Allowed, "UPDATE operations should be allowed by validation policy")
+		assert.True(
+			t,
+			updateResp.Response.Allowed,
+			"UPDATE operations should be allowed by validation policy",
+		)
 		assert.Equal(t, updateReview.Request.UID, updateResp.Response.UID, "UID mismatch")
 	})
 
@@ -109,12 +121,22 @@ func TestCaddyfileIntegration(t *testing.T) {
 		// Check that patches were applied
 		require.NotNil(t, resp.Response.Patch, "Expected patches to be applied")
 		require.NotNil(t, resp.Response.PatchType, "Expected patch type to be set")
-		assert.Equal(t, admissionv1.PatchTypeJSONPatch, *resp.Response.PatchType, "Expected JSONPatch type")
+		assert.Equal(
+			t,
+			admissionv1.PatchTypeJSONPatch,
+			*resp.Response.PatchType,
+			"Expected JSONPatch type",
+		)
 
 		// Verify the patch content contains the expected mutation
 		patchStr := string(resp.Response.Patch)
 		assert.Contains(t, patchStr, "mutated-by", "Expected patch to contain mutated-by label")
-		assert.Contains(t, patchStr, "caddy-admission-webhook", "Expected patch to contain webhook identifier")
+		assert.Contains(
+			t,
+			patchStr,
+			"caddy-admission-webhook",
+			"Expected patch to contain webhook identifier",
+		)
 
 		// Parse and validate the patch structure
 		var patches []map[string]any
@@ -130,7 +152,11 @@ func TestCaddyfileIntegration(t *testing.T) {
 }
 
 // Helper function to create a test admission review
-func createTestAdmissionReview(t *testing.T, operation string, objectData map[string]any) *admissionv1.AdmissionReview {
+func createTestAdmissionReview(
+	t *testing.T,
+	operation string,
+	objectData map[string]any,
+) *admissionv1.AdmissionReview {
 	var obj runtime.RawExtension
 	if objectData != nil {
 		objJSON, err := json.Marshal(objectData)
@@ -159,7 +185,12 @@ func createTestAdmissionReview(t *testing.T, operation string, objectData map[st
 }
 
 // Helper function to send an admission request and parse the response
-func sendAdmissionRequest(t *testing.T, tester *caddytest.Tester, path string, review *admissionv1.AdmissionReview) *admissionv1.AdmissionReview {
+func sendAdmissionRequest(
+	t *testing.T,
+	tester *caddytest.Tester,
+	path string,
+	review *admissionv1.AdmissionReview,
+) *admissionv1.AdmissionReview {
 	reviewJSON, err := json.Marshal(review)
 	require.NoError(t, err, "Failed to marshal admission review")
 

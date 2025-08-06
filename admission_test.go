@@ -719,7 +719,10 @@ func TestWebhook_UnmarshalCaddyfile_ValidationPolicy(t *testing.T) {
 			}
 
 			if controllerType != "validation_policy" {
-				t.Errorf("expected controller_type to be 'validation_policy', got %q", controllerType)
+				t.Errorf(
+					"expected controller_type to be 'validation_policy', got %q",
+					controllerType,
+				)
 			}
 		})
 	}
