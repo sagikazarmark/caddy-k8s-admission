@@ -269,6 +269,11 @@ func (JSONPatch) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
+// Provision sets up the JSON patch operation.
+func (p *JSONPatch) Provision(_ caddy.Context) error {
+	return p.Validate()
+}
+
 // Validate validates a single JSON patch operation.
 func (p JSONPatch) Validate() error {
 	if p.Op == "" {
@@ -301,60 +306,69 @@ func (p JSONPatch) Validate() error {
 	return nil
 }
 
-// UnmarshalCaddyfile implements [caddyfile.Unmarshaler].
+// UnmarshalCaddyfile implements caddyfile.Unmarshaler.
 func (p *JSONPatch) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.Next()
 
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
-		switch d.Val() {
-		case "op":
-			if !d.NextArg() {
-				return d.ArgErr()
-			}
-			p.Op = d.Val()
-		case "path":
-			if !d.NextArg() {
-				return d.ArgErr()
-			}
-			p.Path = d.Val()
-		case "value":
-			if !d.NextArg() {
-				return d.ArgErr()
-			}
-
-			// Handle multiple values as array
-			values := []string{d.Val()}
-			for d.NextArg() {
-				values = append(values, d.Val())
-			}
-
-			var value any
-			if len(values) == 1 {
-				// Single value - try to parse as JSON, fallback to string
-				if err := json.Unmarshal([]byte(values[0]), &value); err != nil {
-					value = values[0]
-				}
-			} else {
-				// Multiple values - create array, attempting JSON parse for each
-				var parsedValues []any
-				for _, v := range values {
-					var parsed any
-					if err := json.Unmarshal([]byte(v), &parsed); err != nil {
-						parsed = v
-					}
-					parsedValues = append(parsedValues, parsed)
-				}
-				value = parsedValues
-			}
-			p.Value = value
-		case "from":
-			if !d.NextArg() {
-				return d.ArgErr()
-			}
-			p.From = d.Val()
-		default:
-			return d.Errf("unknown directive: %s", d.Val())
+		if err := p.parsePatchDirective(d); err != nil {
+			return err
 		}
+	}
+
+	return nil
+}
+
+// parsePatchDirective parses a single patch directive.
+func (p *JSONPatch) parsePatchDirective(d *caddyfile.Dispenser) error {
+	switch d.Val() {
+	case "op":
+		if !d.NextArg() {
+			return d.ArgErr()
+		}
+		p.Op = d.Val()
+	case "path":
+		if !d.NextArg() {
+			return d.ArgErr()
+		}
+		p.Path = d.Val()
+	case "value":
+		if !d.NextArg() {
+			return d.ArgErr()
+		}
+
+		// Handle multiple values as array
+		values := []string{d.Val()}
+		for d.NextArg() {
+			values = append(values, d.Val())
+		}
+
+		var value any
+		if len(values) == 1 {
+			// Single value - try to parse as JSON, fallback to string
+			if err := json.Unmarshal([]byte(values[0]), &value); err != nil {
+				value = values[0]
+			}
+		} else {
+			// Multiple values - create array, attempting JSON parse for each
+			var parsedValues []any
+			for _, v := range values {
+				var parsed any
+				if err := json.Unmarshal([]byte(v), &parsed); err != nil {
+					parsed = v
+				}
+				parsedValues = append(parsedValues, parsed)
+			}
+			value = parsedValues
+		}
+		p.Value = value
+	case "from":
+		if !d.NextArg() {
+			return d.ArgErr()
+		}
+		p.From = d.Val()
+	default:
+		return d.Errf("unknown directive: %s", d.Val())
 	}
 
 	return nil
@@ -384,16 +398,21 @@ func (p JSONPatch) Admit(
 	}, nil
 }
 
+// Interface guards
+var (
+	_ Controller            = (*JSONPatch)(nil)
+	_ caddy.Provisioner     = (*JSONPatch)(nil)
+	_ caddy.Validator       = (*JSONPatch)(nil)
+	_ caddyfile.Unmarshaler = (*JSONPatch)(nil)
+)
+
 // JSONPatches is an admission webhook controller that applies custom JSON patches to resources.
 //
 // It accepts a list of JSON Patch operations and applies them to incoming resources.
 // Supports all standard JSON Patch operations: add, remove, replace, move, copy, test.
 type JSONPatches struct {
-	// PatchesRaw holds the raw JSON configuration for the JSON patch controllers.
-	PatchesRaw []json.RawMessage `json:"patches,omitempty" caddy:"namespace=k8s.admission inline_key=controller_type"`
-
-	// Patches is the list of loaded JSON patch controllers.
-	Patches []JSONPatch `json:"-"`
+	// Patches is the list of JSON patch operations.
+	Patches []JSONPatch `json:"patches,omitempty"`
 }
 
 // CaddyModule returns the Caddy module information.
@@ -405,22 +424,17 @@ func (JSONPatches) CaddyModule() caddy.ModuleInfo {
 }
 
 // Provision sets up the JSON patch controller.
-func (j *JSONPatches) Provision(_ caddy.Context) error {
-	if j.PatchesRaw == nil {
-		j.PatchesRaw = make([]json.RawMessage, 0)
-	}
-
+func (j *JSONPatches) Provision(ctx caddy.Context) error {
 	if j.Patches == nil {
 		j.Patches = make([]JSONPatch, 0)
 	}
 
-	// Manually unmarshal each patch configuration
-	for i, patchRaw := range j.PatchesRaw {
-		var patch JSONPatch
-		if err := json.Unmarshal(patchRaw, &patch); err != nil {
-			return fmt.Errorf("unmarshaling patch %d: %w", i, err)
+	// Provision each patch
+	for i, patch := range j.Patches {
+		if err := patch.Provision(ctx); err != nil {
+			return fmt.Errorf("provisioning patch %d: %w", i, err)
 		}
-		j.Patches = append(j.Patches, patch)
+		j.Patches[i] = patch
 	}
 
 	return nil
@@ -439,10 +453,10 @@ func (j JSONPatches) Validate() error {
 	return errors.Join(errs...)
 }
 
-// UnmarshalCaddyfile implements [caddyfile.Unmarshaler].
+// UnmarshalCaddyfile implements caddyfile.Unmarshaler.
 func (j *JSONPatches) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	if j.PatchesRaw == nil {
-		j.PatchesRaw = make([]json.RawMessage, 0)
+	if j.Patches == nil {
+		j.Patches = make([]JSONPatch, 0)
 	}
 
 	d.Next()
@@ -450,69 +464,17 @@ func (j *JSONPatches) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		switch d.Val() {
 		case "patch":
-			// Create a new JSONPatch and unmarshal it
+			// Create a new JSONPatch and parse its content directly
 			patch := new(JSONPatch)
 
-			// Parse patch block
+			// Parse patch block content
 			for nesting := d.Nesting(); d.NextBlock(nesting); {
-				switch d.Val() {
-				case "op":
-					if !d.NextArg() {
-						return d.ArgErr()
-					}
-					patch.Op = d.Val()
-				case "path":
-					if !d.NextArg() {
-						return d.ArgErr()
-					}
-					patch.Path = d.Val()
-				case "value":
-					if !d.NextArg() {
-						return d.ArgErr()
-					}
-
-					// Handle multiple values as array
-					values := []string{d.Val()}
-					for d.NextArg() {
-						values = append(values, d.Val())
-					}
-
-					var value any
-					if len(values) == 1 {
-						// Single value - try to parse as JSON, fallback to string
-						if err := json.Unmarshal([]byte(values[0]), &value); err != nil {
-							value = values[0]
-						}
-					} else {
-						// Multiple values - create array, attempting JSON parse for each
-						var parsedValues []any
-						for _, v := range values {
-							var parsed any
-							if err := json.Unmarshal([]byte(v), &parsed); err != nil {
-								parsed = v
-							}
-							parsedValues = append(parsedValues, parsed)
-						}
-						value = parsedValues
-					}
-					patch.Value = value
-				case "from":
-					if !d.NextArg() {
-						return d.ArgErr()
-					}
-					patch.From = d.Val()
-				default:
-					return d.Errf("unknown patch directive: %s", d.Val())
+				if err := patch.parsePatchDirective(d); err != nil {
+					return err
 				}
 			}
 
-			// Store the patch configuration as raw JSON
-			patchJSON, err := json.Marshal(patch)
-			if err != nil {
-				return fmt.Errorf("marshaling patch: %w", err)
-			}
-
-			j.PatchesRaw = append(j.PatchesRaw, patchJSON)
+			j.Patches = append(j.Patches, *patch)
 		default:
 			return d.Errf("unknown directive: %s", d.Val())
 		}
@@ -554,9 +516,6 @@ func (j JSONPatches) Admit(
 
 // Interface guards
 var (
-	_ Controller            = (*JSONPatch)(nil)
-	_ caddy.Validator       = (*JSONPatch)(nil)
-	_ caddyfile.Unmarshaler = (*JSONPatch)(nil)
 	_ Controller            = (*JSONPatches)(nil)
 	_ caddy.Provisioner     = (*JSONPatches)(nil)
 	_ caddy.Validator       = (*JSONPatches)(nil)
