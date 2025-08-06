@@ -95,6 +95,10 @@ const (
 //
 // It evaluates the provided expression against the resource and takes the specified action.
 type CelPolicy struct {
+	// Name is an optional name for the policy that can be referenced in CEL expressions as 'policyName'.
+	// If no message is specified and a request is denied, defaults to "Rejected by 'NAME' policy".
+	Name string `json:"name,omitempty"`
+
 	// Expression is the validation expression to evaluate against the resource.
 	Expression string `json:"expression,omitempty"`
 
@@ -130,6 +134,7 @@ func (vp *CelPolicy) Provision(_ caddy.Context) error {
 		cel.Variable("operation", cel.StringType),                           // required
 		cel.Variable("object", cel.MapType(cel.StringType, cel.AnyType)),    // optional
 		cel.Variable("oldObject", cel.MapType(cel.StringType, cel.AnyType)), // optional
+		cel.Variable("policyName", cel.StringType),                          // optional
 	)
 	if err != nil {
 		return fmt.Errorf("initializing CEL environment: %w", err)
@@ -177,8 +182,18 @@ func (vp *CelPolicy) Provision(_ caddy.Context) error {
 func (vp *CelPolicy) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.Next()
 
+	// Check if there's an argument after the directive name (cel_policy NAME)
+	if d.NextArg() {
+		vp.Name = d.Val()
+	}
+
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		switch d.Val() {
+		case "name":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			vp.Name = d.Val()
 		case "expression":
 			if !d.NextArg() {
 				return d.ArgErr()
@@ -229,6 +244,8 @@ func (vp CelPolicy) Admit(
 		input["requestNamespace"] = review.Request.Namespace
 	}
 
+	input["policyName"] = vp.Name
+
 	if review.Request.Object.Raw != nil {
 		var obj unstructured.Unstructured
 
@@ -270,20 +287,32 @@ func (vp CelPolicy) Admit(
 		Allowed: allowed,
 	}
 
-	// If the request is denied and we have a message expression, evaluate it
-	if !allowed && vp.messageProgram != nil {
-		messageResult, _, err := vp.messageProgram.ContextEval(ctx, input)
-		if err != nil {
-			return nil, fmt.Errorf("evaluating CEL message program: %w", err)
+	// If the request is denied, set up the status message
+	if !allowed {
+		var message string
+
+		if vp.messageProgram != nil {
+			// Use custom message expression
+			messageResult, _, err := vp.messageProgram.ContextEval(ctx, input)
+			if err != nil {
+				return nil, fmt.Errorf("evaluating CEL message program: %w", err)
+			}
+
+			if messageResult.Type() != cel.StringType {
+				return nil, fmt.Errorf("unexpected non-string message result of type %T", messageResult.Value())
+			}
+
+			message = messageResult.Value().(string)
+		} else if vp.Name != "" {
+			// Use default message with policy name
+			message = fmt.Sprintf("Rejected by '%s' policy", vp.Name)
 		}
 
-		if messageResult.Type() != cel.StringType {
-			return nil, fmt.Errorf("unexpected non-string message result of type %T", messageResult.Value())
-		}
-
-		message := messageResult.Value().(string)
-		response.Result = &metav1.Status{
-			Message: message,
+		// Only set status if we have a message
+		if message != "" {
+			response.Result = &metav1.Status{
+				Message: message,
+			}
 		}
 	}
 

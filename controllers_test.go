@@ -845,6 +845,434 @@ func TestCelPolicy_PolicyActions(t *testing.T) {
 	}
 }
 
+func TestCelPolicy_UnmarshalCaddyfileWithName(t *testing.T) {
+	testCases := []struct {
+		name           string
+		input          string
+		expectedName   string
+		expectedExpr   string
+		expectedAction PolicyAction
+		expectedMsg    string
+		expectError    bool
+		expectedErrMsg string
+	}{
+		{
+			name: "name as argument",
+			input: `cel_policy my_policy {
+				expression "name == 'allowed-pod'"
+				action allow
+			}`,
+			expectedName:   "my_policy",
+			expectedExpr:   "name == 'allowed-pod'",
+			expectedAction: PolicyActionAllow,
+			expectError:    false,
+		},
+		{
+			name: "name as directive",
+			input: `cel_policy {
+				name my_policy
+				expression "operation == 'DELETE'"
+				action deny
+			}`,
+			expectedName:   "my_policy",
+			expectedExpr:   "operation == 'DELETE'",
+			expectedAction: PolicyActionDeny,
+			expectError:    false,
+		},
+		{
+			name: "name as directive overrides argument",
+			input: `cel_policy argument_name {
+				name directive_name
+				expression "true"
+				action allow
+			}`,
+			expectedName:   "directive_name",
+			expectedExpr:   "true",
+			expectedAction: PolicyActionAllow,
+			expectError:    false,
+		},
+		{
+			name: "name with message",
+			input: `cel_policy test_policy {
+				expression "operation == 'CREATE'"
+				action deny
+				message "'Custom message from ' + policyName"
+			}`,
+			expectedName:   "test_policy",
+			expectedExpr:   "operation == 'CREATE'",
+			expectedAction: PolicyActionDeny,
+			expectedMsg:    "'Custom message from ' + policyName",
+			expectError:    false,
+		},
+		{
+			name: "missing name argument",
+			input: `cel_policy {
+				name
+			}`,
+			expectError: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			policy := &CelPolicy{}
+			d := caddyfile.NewTestDispenser(testCase.input)
+
+			err := policy.UnmarshalCaddyfile(d)
+
+			if testCase.expectError {
+				assert.Error(t, err)
+				if testCase.expectedErrMsg != "" {
+					assert.Contains(t, err.Error(), testCase.expectedErrMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, testCase.expectedName, policy.Name)
+				assert.Equal(t, testCase.expectedExpr, policy.Expression)
+				assert.Equal(t, testCase.expectedAction, policy.Action)
+				if testCase.expectedMsg != "" {
+					assert.Equal(t, testCase.expectedMsg, policy.Message)
+				}
+			}
+		})
+	}
+}
+
+func TestCelPolicy_AdmitWithName(t *testing.T) {
+	uid := "test-uid"
+
+	testCases := []struct {
+		name        string
+		policyName  string
+		expression  string
+		action      PolicyAction
+		message     string
+		review      admissionv1.AdmissionReview
+		expectAllow bool
+		expectError bool
+		expectedMsg string
+	}{
+		{
+			name:       "deny with name only - uses fallback message",
+			policyName: "test_policy",
+			expression: "operation == 'CREATE'",
+			action:     PolicyActionDeny,
+			message:    "", // no custom message
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+				},
+			},
+			expectAllow: false,
+			expectError: false,
+			expectedMsg: "Rejected by 'test_policy' policy",
+		},
+		{
+			name:       "deny with custom message overrides fallback",
+			policyName: "test_policy",
+			expression: "operation == 'CREATE'",
+			action:     PolicyActionDeny,
+			message:    "'Custom denial message'",
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+				},
+			},
+			expectAllow: false,
+			expectError: false,
+			expectedMsg: "Custom denial message",
+		},
+		{
+			name:       "deny with no name and no message - no status",
+			policyName: "", // no name
+			expression: "operation == 'CREATE'",
+			action:     PolicyActionDeny,
+			message:    "", // no message
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+				},
+			},
+			expectAllow: false,
+			expectError: false,
+			expectedMsg: "", // no message should be set
+		},
+		{
+			name:       "allow with name - no message",
+			policyName: "test_policy",
+			expression: "operation == 'CREATE'",
+			action:     PolicyActionAllow,
+			message:    "",
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+				},
+			},
+			expectAllow: true,
+			expectError: false,
+			expectedMsg: "", // no message when allowing
+		},
+		{
+			name:       "policy doesn't match - allow with no message",
+			policyName: "test_policy",
+			expression: "operation == 'DELETE'",
+			action:     PolicyActionDeny,
+			message:    "",
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+				},
+			},
+			expectAllow: true, // policy doesn't match, so allow
+			expectError: false,
+			expectedMsg: "", // no message when allowing
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			policy := &CelPolicy{
+				Name:       testCase.policyName,
+				Expression: testCase.expression,
+				Action:     testCase.action,
+				Message:    testCase.message,
+			}
+
+			// Provision the policy
+			err := policy.Provision(caddy.Context{})
+			require.NoError(t, err)
+
+			// Call Admit
+			response, err := policy.Admit(context.Background(), testCase.review)
+
+			if testCase.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, response)
+				assert.Equal(t, testCase.review.Request.UID, response.UID)
+				assert.Equal(t, testCase.expectAllow, response.Allowed)
+
+				if testCase.expectedMsg != "" {
+					require.NotNil(t, response.Result, "Expected result with message")
+					assert.Equal(t, testCase.expectedMsg, response.Result.Message)
+				} else {
+					assert.Nil(t, response.Result, "Expected no result when no message")
+				}
+			}
+		})
+	}
+}
+
+func TestCelPolicy_PolicyNameInCEL(t *testing.T) {
+	uid := "test-uid"
+
+	testCases := []struct {
+		name        string
+		policyName  string
+		expression  string
+		action      PolicyAction
+		message     string
+		review      admissionv1.AdmissionReview
+		expectAllow bool
+		expectError bool
+		expectedMsg string
+	}{
+		{
+			name:       "use policyName in expression",
+			policyName: "security_policy",
+			expression: "policyName == 'security_policy'",
+			action:     PolicyActionAllow,
+			message:    "",
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+				},
+			},
+			expectAllow: true,
+			expectError: false,
+			expectedMsg: "",
+		},
+		{
+			name:       "use policyName in message expression",
+			policyName: "validation_policy",
+			expression: "operation == 'CREATE'",
+			action:     PolicyActionDeny,
+			message:    "'Request denied by policy: ' + policyName",
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+				},
+			},
+			expectAllow: false,
+			expectError: false,
+			expectedMsg: "Request denied by policy: validation_policy",
+		},
+		{
+			name:       "policyName is empty string when name is not set",
+			policyName: "", // no policy name
+			expression: "policyName == ''",
+			action:     PolicyActionAllow,
+			message:    "",
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+				},
+			},
+			expectAllow: true,
+			expectError: false,
+			expectedMsg: "",
+		},
+		{
+			name:       "complex expression with policyName",
+			policyName: "resource_policy",
+			expression: "policyName == 'resource_policy' && operation == 'CREATE' && has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.restricted)",
+			action:     PolicyActionDeny,
+			message:    "policyName + ': Restricted resources cannot be created'",
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+					Object: runtime.RawExtension{
+						Raw: []byte(`{"apiVersion": "v1", "kind": "Pod", "metadata": {"labels": {"restricted": "true"}}}`),
+					},
+				},
+			},
+			expectAllow: false,
+			expectError: false,
+			expectedMsg: "resource_policy: Restricted resources cannot be created",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			policy := &CelPolicy{
+				Name:       testCase.policyName,
+				Expression: testCase.expression,
+				Action:     testCase.action,
+				Message:    testCase.message,
+			}
+
+			// Provision the policy
+			err := policy.Provision(caddy.Context{})
+			require.NoError(t, err)
+
+			// Call Admit
+			response, err := policy.Admit(context.Background(), testCase.review)
+
+			if testCase.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, response)
+				assert.Equal(t, testCase.review.Request.UID, response.UID)
+				assert.Equal(t, testCase.expectAllow, response.Allowed)
+
+				if testCase.expectedMsg != "" {
+					require.NotNil(t, response.Result, "Expected result with message")
+					assert.Equal(t, testCase.expectedMsg, response.Result.Message)
+				} else {
+					assert.Nil(t, response.Result, "Expected no result when no message")
+				}
+			}
+		})
+	}
+}
+
+func TestCelPolicy_MessageFallbackBehavior(t *testing.T) {
+	uid := "test-uid"
+
+	testCases := []struct {
+		name            string
+		policyName      string
+		message         string
+		expectStatusSet bool
+		expectedMessage string
+		description     string
+	}{
+		{
+			name:            "name set, no message - fallback message",
+			policyName:      "security_check",
+			message:         "",
+			expectStatusSet: true,
+			expectedMessage: "Rejected by 'security_check' policy",
+			description:     "Should use fallback message when name is set but message is empty",
+		},
+		{
+			name:            "name set, message set - custom message",
+			policyName:      "security_check",
+			message:         "'Custom rejection message'",
+			expectStatusSet: true,
+			expectedMessage: "Custom rejection message",
+			description:     "Should use custom message when both name and message are set",
+		},
+		{
+			name:            "no name, message set - custom message",
+			policyName:      "",
+			message:         "'Message without policy name'",
+			expectStatusSet: true,
+			expectedMessage: "Message without policy name",
+			description:     "Should use custom message when name is empty but message is set",
+		},
+		{
+			name:            "no name, no message - no status",
+			policyName:      "",
+			message:         "",
+			expectStatusSet: false,
+			expectedMessage: "",
+			description:     "Should not set any status when both name and message are empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			policy := &CelPolicy{
+				Name:       testCase.policyName,
+				Expression: "operation == 'CREATE'", // Always matches CREATE operations
+				Action:     PolicyActionDeny,        // Always denies when matched
+				Message:    testCase.message,
+			}
+
+			// Provision the policy
+			err := policy.Provision(caddy.Context{})
+			require.NoError(t, err)
+
+			// Create a review that will match the policy (CREATE operation)
+			review := admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+				},
+			}
+
+			// Call Admit
+			response, err := policy.Admit(context.Background(), review)
+
+			// Verify basic response
+			assert.NoError(t, err, testCase.description)
+			assert.NotNil(t, response, testCase.description)
+			assert.Equal(t, types.UID(uid), response.UID, testCase.description)
+			assert.False(t, response.Allowed, "All test cases should deny the request: %s", testCase.description)
+
+			// Verify message behavior
+			if testCase.expectStatusSet {
+				require.NotNil(t, response.Result, "Expected status to be set: %s", testCase.description)
+				assert.Equal(t, testCase.expectedMessage, response.Result.Message, testCase.description)
+			} else {
+				assert.Nil(t, response.Result, "Expected no status to be set: %s", testCase.description)
+			}
+		})
+	}
+}
+
 func TestCelPolicy_ContextCancellation(t *testing.T) {
 	policy := &CelPolicy{
 		Expression: "true",
