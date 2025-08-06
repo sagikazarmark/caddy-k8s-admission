@@ -179,11 +179,20 @@ func (wh *Webhook) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 	controller, ok := unm.(Controller)
 	if !ok {
-		return d.Errf("module %s (%T) is not a supported admission controller implementation (requires Controller interface)", modID, unm)
+		return d.Errf(
+			"module %s (%T) is not a supported admission controller implementation (requires Controller interface)",
+			modID,
+			unm,
+		)
 	}
 
 	// Store the controller configuration using caddyconfig.JSONModuleObject
-	wh.ControllerRaw = caddyconfig.JSONModuleObject(controller, "controller_type", controllerType, nil)
+	wh.ControllerRaw = caddyconfig.JSONModuleObject(
+		controller,
+		"controller_type",
+		controllerType,
+		nil,
+	)
 
 	return nil
 }
