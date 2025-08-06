@@ -159,7 +159,7 @@ func (wh Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.
 	return nil
 }
 
-// UnmarshalCaddyfile implements caddyfile.Unmarshaler.
+// UnmarshalCaddyfile implements [caddyfile.Unmarshaler].
 func (wh *Webhook) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.Next() // consume directive name
 
@@ -171,22 +171,35 @@ func (wh *Webhook) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	controllerType := d.Val()
 	modID := "k8s.admission." + controllerType
 
-	// Use caddyfile.UnmarshalModule to delegate parsing to the specific controller
-	unm, err := caddyfile.UnmarshalModule(d, modID)
+	// Load the module to get its instance
+	mod, err := caddy.GetModule(modID)
 	if err != nil {
-		return err
+		return d.Errf("getting module named '%s': %v", modID, err)
 	}
 
-	controller, ok := unm.(Controller)
-	if !ok {
-		return d.Errf(
-			"module %s (%T) is not a supported admission controller implementation (requires Controller interface)",
-			modID,
-			unm,
-		)
+	controller := mod.New().(Controller)
+
+	// Check if the controller implements [caddyfile.Unmarshaler]
+	if _, ok := controller.(caddyfile.Unmarshaler); ok {
+		unm, err := caddyfile.UnmarshalModule(d, modID)
+		if err != nil {
+			return err
+		}
+
+		controller = unm.(Controller)
+	} else {
+		// No extra arguments expected for simple controllers
+		if d.NextArg() {
+			return d.ArgErr()
+		}
+
+		// No block expected for simple controllers
+		if d.NextBlock(d.Nesting()) {
+			return d.Errf("unexpected block for '%s' controller", controllerType)
+		}
 	}
 
-	// Store the controller configuration using caddyconfig.JSONModuleObject
+	// Store the controller configuration
 	wh.ControllerRaw = caddyconfig.JSONModuleObject(
 		controller,
 		"controller_type",
