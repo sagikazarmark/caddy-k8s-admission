@@ -1,0 +1,31 @@
+localhost {
+    # Simple allow-all webhook - always permits any request
+    # Useful for testing webhook connectivity or as a permissive fallback
+	route /allow {
+		k8s_admission always_allow
+	}
+
+	# Simple deny-all webhook - always rejects any request
+    # Useful for maintenance mode or blocking all operations on specific resources
+	route /deny {
+		k8s_admission always_deny
+	}
+
+	# Deny CREATE operations
+	route /deny/create {
+    	k8s_admission validation_policy {
+    		expression "operation == 'CREATE'"
+    		action deny
+    	}
+	}
+
+	route /mutate {
+		k8s_admission json_patch {
+			patch {
+				op add
+				path "/metadata/labels/mutated-by"
+				value "caddy-admission-webhook"
+			}
+		}
+	}
+}

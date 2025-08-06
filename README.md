@@ -186,6 +186,21 @@ k8s_admission json_patch {
 - `copy` - Copy a value from one path to another
 - `test` - Test that the value at the path matches the specified value
 
+## Examples
+
+For comprehensive examples and configuration patterns, see the [`examples.Caddyfile`](examples.Caddyfile) file which contains:
+
+- **Basic Controllers**: Simple allow/deny configurations
+- **Operation-based Validation**: CREATE/UPDATE/DELETE operation filtering
+- **Namespace-based Policies**: Whitelist/blacklist namespace patterns
+- **Resource-based Validation**: Naming conventions, labels, security contexts
+- **Complex Validation Logic**: Multi-condition CEL expressions
+- **JSON Patch Mutations**: Label injection, security hardening, resource limits
+- **Advanced Configurations**: Multi-stage validation, conditional patching
+- **Testing & Debugging**: Health checks, metrics, debug logging
+
+Each example includes detailed comments explaining the use case and configuration.
+
 ## Complete Example
 
 Here's a comprehensive example showing multiple controllers working together:
@@ -236,8 +251,6 @@ Here's a comprehensive example showing multiple controllers working together:
             }
         }
     }
-
-    # Alternative annotation-based mutation
 
     # Testing endpoints
     route /test/allow {
