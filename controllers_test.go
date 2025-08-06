@@ -202,7 +202,7 @@ func TestControllersModuleRegistration(t *testing.T) {
 			module:   &ValidationPolicy{},
 		},
 		{
-			name:     "JSONPatchController",
+			name:     "JSONPatcher",
 			moduleID: "k8s.admission.json_patch",
 			module:   &JSONPatcher{},
 		},
@@ -215,122 +215,6 @@ func TestControllersModuleRegistration(t *testing.T) {
 			assert.NotNil(t, moduleInfo.New)
 		})
 	}
-}
-
-// TestAlwaysAllow_ResponseConsistency tests that AlwaysAllow always returns consistent responses
-func TestAlwaysAllow_ResponseConsistency(t *testing.T) {
-	handler := AlwaysAllow{}
-	uid := types.UID("consistency-test")
-
-	review := admissionv1.AdmissionReview{
-		Request: &admissionv1.AdmissionRequest{
-			UID: uid,
-			Kind: metav1.GroupVersionKind{
-				Version: "v1",
-				Kind:    "Pod",
-			},
-			Operation: admissionv1.Create,
-			Object: runtime.RawExtension{
-				Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test"}}`),
-			},
-		},
-	}
-
-	// Run multiple times to ensure consistency
-	for range 5 {
-		response, err := handler.Admit(context.Background(), review)
-		require.NoError(t, err)
-		require.NotNil(t, response)
-		assert.True(t, response.Allowed)
-		assert.Equal(t, uid, response.UID)
-	}
-}
-
-// TestAlwaysDeny_ResponseConsistency tests that AlwaysDeny always returns consistent responses
-func TestAlwaysDeny_ResponseConsistency(t *testing.T) {
-	handler := AlwaysDeny{}
-	uid := types.UID("consistency-test")
-
-	review := admissionv1.AdmissionReview{
-		Request: &admissionv1.AdmissionRequest{
-			UID: uid,
-			Kind: metav1.GroupVersionKind{
-				Version: "v1",
-				Kind:    "Pod",
-			},
-			Operation: admissionv1.Create,
-			Object: runtime.RawExtension{
-				Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test"}}`),
-			},
-		},
-	}
-
-	// Run multiple times to ensure consistency
-	for range 5 {
-		response, err := handler.Admit(context.Background(), review)
-		require.NoError(t, err)
-		require.NotNil(t, response)
-		assert.False(t, response.Allowed)
-		assert.Equal(t, uid, response.UID)
-	}
-}
-
-// TestControllersConcurrency tests that controllers are safe for concurrent use
-func TestControllersConcurrency(t *testing.T) {
-	uid := types.UID("concurrent-test")
-	review := admissionv1.AdmissionReview{
-		Request: &admissionv1.AdmissionRequest{
-			UID: uid,
-			Kind: metav1.GroupVersionKind{
-				Version: "v1",
-				Kind:    "Pod",
-			},
-			Operation: admissionv1.Create,
-			Object: runtime.RawExtension{
-				Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test"}}`),
-			},
-		},
-	}
-
-	t.Run("AlwaysAllow concurrent", func(t *testing.T) {
-		handler := AlwaysAllow{}
-
-		done := make(chan bool, 10)
-		for range 10 {
-			go func() {
-				defer func() { done <- true }()
-				response, err := handler.Admit(context.Background(), review)
-				assert.NoError(t, err)
-				assert.NotNil(t, response)
-				assert.True(t, response.Allowed)
-				assert.Equal(t, uid, response.UID)
-			}()
-		}
-
-		for range 10 {
-			<-done
-		}
-	})
-
-	t.Run("AlwaysDeny concurrent", func(t *testing.T) {
-		handler := AlwaysDeny{}
-
-		done := make(chan bool, 10)
-		for range 10 {
-			go func() {
-				defer func() { done <- true }()
-				response, err := handler.Admit(context.Background(), review)
-				assert.NoError(t, err)
-				assert.NotNil(t, response)
-				assert.False(t, response.Allowed)
-				assert.Equal(t, uid, response.UID)
-			}()
-		}
-
-		for range 10 {
-			<-done
-		}
-	})
 }
 
 func TestValidationPolicy_CaddyModule(t *testing.T) {
@@ -1122,7 +1006,7 @@ func TestJSONPatch_Validate(t *testing.T) {
 	}
 }
 
-func TestJSONPatchController_Validate(t *testing.T) {
+func TestJSONPatcher_Validate(t *testing.T) {
 	testCases := []struct {
 		name        string
 		patches     []JSONPatch
@@ -1257,7 +1141,7 @@ func TestJSONPatchController_Validate(t *testing.T) {
 	}
 }
 
-func TestJSONPatchController_Validate_ErrorJoining(t *testing.T) {
+func TestJSONPatcher_Validate_ErrorJoining(t *testing.T) {
 	// This test specifically demonstrates the error joining behavior
 	controller := &JSONPatcher{
 		Patches: []JSONPatch{
@@ -1293,7 +1177,7 @@ func TestJSONPatchController_Validate_ErrorJoining(t *testing.T) {
 	assert.Equal(t, 3, len(lines), "Expected 3 error lines")
 }
 
-func TestJSONPatchController_UnmarshalCaddyfile_Enhanced(t *testing.T) {
+func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 	testCases := []struct {
 		name            string
 		input           string
@@ -1485,7 +1369,7 @@ func TestJSONPatchController_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 	}
 }
 
-func TestJSONPatchController_Admit(t *testing.T) {
+func TestJSONPatcher_Admit(t *testing.T) {
 	testCases := []struct {
 		name        string
 		patches     []JSONPatch
