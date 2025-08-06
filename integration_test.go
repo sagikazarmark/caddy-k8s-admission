@@ -92,7 +92,7 @@ func TestCaddyfileIntegration(t *testing.T) {
 		assert.Equal(t, updateReview.Request.UID, updateResp.Response.UID, "UID mismatch")
 	})
 
-	t.Run("json_patch", func(t *testing.T) {
+	t.Run("json_patches", func(t *testing.T) {
 		review := createTestAdmissionReview(t, "CREATE", map[string]any{
 			"apiVersion": "v1",
 			"kind":       "Pod",

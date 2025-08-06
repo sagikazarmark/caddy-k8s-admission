@@ -20,7 +20,7 @@ localhost {
 	}
 
 	route /mutate {
-		k8s_admission json_patch {
+		k8s_admission json_patches {
 			patch {
 				op add
 				path "/metadata/labels/mutated-by"

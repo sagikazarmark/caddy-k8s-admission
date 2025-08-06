@@ -42,7 +42,7 @@ example.com {
 
 ```caddyfile
 example.com {
-    k8s_admission json_patch {
+    k8s_admission json_patches {
         patch {
             op "add"
             path "/metadata/labels/managed-by"
@@ -110,13 +110,13 @@ k8s_admission validation_policy {
 - `allow` - Allow the request when the expression matches
 - `deny` - Deny the request when the expression matches
 
-### `json_patch`
+### `json_patches`
 
 Applies custom JSON Patch operations to Kubernetes resources. Supports all standard JSON Patch operations: add, remove, replace, move, copy, and test.
 
 ```caddyfile
 # Add labels and modify replicas
-k8s_admission json_patch {
+k8s_admission json_patches {
     patch {
         op "add"
         path "/metadata/labels/app"
@@ -130,7 +130,7 @@ k8s_admission json_patch {
 }
 
 # Add environment variables with JSON object
-k8s_admission json_patch {
+k8s_admission json_patches {
     patch {
         op "add"
         path "/spec/template/spec/containers/0/env/-"
@@ -139,7 +139,7 @@ k8s_admission json_patch {
 }
 
 # Add multiple ports using array syntax
-k8s_admission json_patch {
+k8s_admission json_patches {
     patch {
         op "add"
         path "/spec/template/spec/containers/0/ports"
@@ -148,7 +148,7 @@ k8s_admission json_patch {
 }
 
 # Move and copy operations
-k8s_admission json_patch {
+k8s_admission json_patches {
     patch {
         op "move"
         path "/metadata/labels/new-label"
@@ -162,7 +162,7 @@ k8s_admission json_patch {
 }
 
 # Remove unwanted fields
-k8s_admission json_patch {
+k8s_admission json_patches {
     patch {
         op "remove"
         path "/metadata/annotations/unwanted-annotation"
@@ -223,7 +223,7 @@ Here's a comprehensive example showing multiple controllers working together:
 
     # Mutation endpoint - inject labels and modify resources
     route /mutate {
-        k8s_admission json_patch {
+        k8s_admission json_patches {
             # Add management labels
             patch {
                 op "add"
@@ -328,7 +328,7 @@ Admission webhooks require TLS. Here's an example Caddyfile with automatic HTTPS
     }
 
     route /mutate {
-        k8s_admission json_patch {
+        k8s_admission json_patches {
             patch {
                 op "add"
                 path "/metadata/labels/managed-by"

@@ -324,8 +324,8 @@ func TestWebhook_UnmarshalCaddyfile_ErrorHandling(t *testing.T) {
 			errorMsg: "module not registered",
 		},
 		{
-			name: "json_patch with unknown directive",
-			input: `k8s_admission json_patch {
+			name: "json_patches with unknown directive",
+			input: `k8s_admission json_patches {
 				patch {
 					op add
 					path "/test"

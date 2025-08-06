@@ -202,9 +202,9 @@ func TestControllersModuleRegistration(t *testing.T) {
 			module:   &ValidationPolicy{},
 		},
 		{
-			name:     "JSONPatcher",
-			moduleID: "k8s.admission.json_patch",
-			module:   &JSONPatcher{},
+			name:     "JSONPatches",
+			moduleID: "k8s.admission.json_patches",
+			module:   &JSONPatches{},
 		},
 	}
 
@@ -1006,7 +1006,7 @@ func TestJSONPatch_Validate(t *testing.T) {
 	}
 }
 
-func TestJSONPatcher_Validate(t *testing.T) {
+func TestJSONPatches_Validate(t *testing.T) {
 	testCases := []struct {
 		name        string
 		patches     []JSONPatch
@@ -1114,7 +1114,7 @@ func TestJSONPatcher_Validate(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			controller := &JSONPatcher{
+			controller := &JSONPatches{
 				Patches: testCase.patches,
 			}
 
@@ -1141,9 +1141,9 @@ func TestJSONPatcher_Validate(t *testing.T) {
 	}
 }
 
-func TestJSONPatcher_Validate_ErrorJoining(t *testing.T) {
+func TestJSONPatches_Validate_ErrorJoining(t *testing.T) {
 	// This test specifically demonstrates the error joining behavior
-	controller := &JSONPatcher{
+	controller := &JSONPatches{
 		Patches: []JSONPatch{
 			{
 				Op:    "invalid-op",
@@ -1177,7 +1177,7 @@ func TestJSONPatcher_Validate_ErrorJoining(t *testing.T) {
 	assert.Equal(t, 3, len(lines), "Expected 3 error lines")
 }
 
-func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
+func TestJSONPatches_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 	testCases := []struct {
 		name            string
 		input           string
@@ -1187,7 +1187,7 @@ func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 	}{
 		{
 			name: "single patch with simple values",
-			input: `json_patch {
+			input: `json_patches {
 				patch {
 					op add
 					path "/metadata/labels/app"
@@ -1205,7 +1205,7 @@ func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 		},
 		{
 			name: "patch with escaped JSON pointer path",
-			input: `json_patch {
+			input: `json_patches {
 				patch {
 					op add
 					path "/metadata/annotations/example.com/special~key"
@@ -1223,7 +1223,7 @@ func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 		},
 		{
 			name: "patch with JSON object value",
-			input: `json_patch {
+			input: `json_patches {
 				patch {
 					op add
 					path "/spec/template/spec/containers/0/env/-"
@@ -1244,7 +1244,7 @@ func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 		},
 		{
 			name: "patch with array value using multiple arguments",
-			input: `json_patch {
+			input: `json_patches {
 				patch {
 					op replace
 					path "/spec/template/spec/containers/0/ports"
@@ -1262,7 +1262,7 @@ func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 		},
 		{
 			name: "patch with mixed array values",
-			input: `json_patch {
+			input: `json_patches {
 				patch {
 					op add
 					path "/metadata/labels"
@@ -1285,7 +1285,7 @@ func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 		},
 		{
 			name: "move operation with escaped paths",
-			input: `json_patch {
+			input: `json_patches {
 				patch {
 					op move
 					path "/metadata/labels/new~label"
@@ -1303,7 +1303,7 @@ func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 		},
 		{
 			name: "multiple patches",
-			input: `json_patch {
+			input: `json_patches {
 				patch {
 					op add
 					path "/metadata/labels/app"
@@ -1341,7 +1341,7 @@ func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			controller := &JSONPatcher{}
+			controller := &JSONPatches{}
 			d := caddyfile.NewTestDispenser(testCase.input)
 
 			err := controller.UnmarshalCaddyfile(d)
@@ -1369,7 +1369,7 @@ func TestJSONPatcher_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 	}
 }
 
-func TestJSONPatcher_Admit(t *testing.T) {
+func TestJSONPatches_Admit(t *testing.T) {
 	testCases := []struct {
 		name        string
 		patches     []JSONPatch
@@ -1415,7 +1415,7 @@ func TestJSONPatcher_Admit(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			controller := &JSONPatcher{
+			controller := &JSONPatches{
 				Patches: testCase.patches,
 			}
 
