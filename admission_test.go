@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -299,6 +301,117 @@ func TestWebhook_ServeHTTP(t *testing.T) {
 					"Expected response to contain AdmissionResponse",
 				)
 				assert.Equal(t, types.UID(uid), response.Response.UID)
+			}
+		})
+	}
+}
+
+func TestWebhook_UnmarshalCaddyfile_JSONPatch(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid json_patch configuration",
+			input: `k8s_admission json_patch {
+				patch {
+					op add
+					path "/metadata/labels/managed-by"
+					value "caddy-admission-webhook"
+				}
+				patch {
+					op replace
+					path "/spec/replicas"
+					value 3
+				}
+			}`,
+			expectError: false,
+		},
+		{
+			name: "json_patch with complex values",
+			input: `k8s_admission json_patch {
+				patch {
+					op add
+					path "/spec/template/spec/containers/0/env/-"
+					value {"name":"DATABASE_URL","value":"postgres://..."}
+				}
+				patch {
+					op add
+					path "/spec/template/spec/containers/0/ports"
+					value 8080 8443 9090
+				}
+			}`,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := caddyfile.NewTestDispenser(tt.input)
+			wh := &Webhook{}
+
+			err := wh.UnmarshalCaddyfile(d)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+					return
+				}
+				if tt.errorMsg != "" && !strings.Contains(err.Error(), tt.errorMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errorMsg, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if wh.ControllerRaw == nil {
+				t.Errorf("expected ControllerRaw to be set")
+				return
+			}
+
+			// Verify the configuration was properly parsed
+			var config map[string]any
+			if err := json.Unmarshal(wh.ControllerRaw, &config); err != nil {
+				t.Errorf("failed to unmarshal controller config: %v", err)
+				return
+			}
+
+			controllerType, ok := config["controller_type"].(string)
+			if !ok {
+				t.Errorf("expected controller_type to be string")
+				return
+			}
+
+			if controllerType != "json_patch" {
+				t.Errorf("expected controller_type to be 'json_patch', got %q", controllerType)
+			}
+
+			// Debug: print the actual JSON structure
+			t.Logf("Actual config JSON: %+v", config)
+
+			// For json_patch controller, verify patches were parsed
+			if controllerType == "json_patch" {
+				patches, ok := config["patches"]
+				if !ok {
+					t.Errorf("expected patches field for json_patch controller")
+					return
+				}
+
+				patchesSlice, ok := patches.([]any)
+				if !ok {
+					t.Errorf("expected patches to be slice")
+					return
+				}
+
+				if len(patchesSlice) == 0 {
+					t.Errorf("expected at least one patch")
+				}
 			}
 		})
 	}

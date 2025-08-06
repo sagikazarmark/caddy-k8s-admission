@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
@@ -168,28 +169,21 @@ func (wh *Webhook) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	}
 
 	controllerType := d.Val()
+	modID := "k8s.admission." + controllerType
 
-	// Create basic controller configuration
-	controllerConfig := map[string]any{
-		"controller_type": controllerType,
-	}
-
-	// Parse any additional configuration blocks
-	for d.NextBlock(0) {
-		key := d.Val()
-		if !d.NextArg() {
-			return d.ArgErr()
-		}
-		value := d.Val()
-		controllerConfig[key] = value
-	}
-
-	// Marshal the configuration
-	var err error
-	wh.ControllerRaw, err = json.Marshal(controllerConfig)
+	// Use caddyfile.UnmarshalModule to delegate parsing to the specific controller
+	unm, err := caddyfile.UnmarshalModule(d, modID)
 	if err != nil {
-		return fmt.Errorf("marshaling admission controller config: %v", err)
+		return err
 	}
+
+	controller, ok := unm.(Controller)
+	if !ok {
+		return d.Errf("module %s (%T) is not a supported admission controller implementation (requires Controller interface)", modID, unm)
+	}
+
+	// Store the controller configuration using caddyconfig.JSONModuleObject
+	wh.ControllerRaw = caddyconfig.JSONModuleObject(controller, "controller_type", controllerType, nil)
 
 	return nil
 }

@@ -144,7 +144,9 @@ func (vp *ValidationPolicy) Provision(_ caddy.Context) error {
 
 // UnmarshalCaddyfile implements [caddyfile.Unmarshaler].
 func (vp *ValidationPolicy) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	for d.NextBlock(0) {
+	d.Next()
+
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		switch d.Val() {
 		case "expression":
 			if !d.NextArg() {
@@ -332,13 +334,15 @@ func (j *JSONPatcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		j.Patches = make([]JSONPatch, 0)
 	}
 
-	for d.NextBlock(0) {
+	d.Next()
+
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		switch d.Val() {
 		case "patch":
 			patch := JSONPatch{}
 
 			// Parse patch block
-			for d.NextBlock(1) {
+			for nesting := d.Nesting(); d.NextBlock(nesting); {
 				switch d.Val() {
 				case "op":
 					if !d.NextArg() {

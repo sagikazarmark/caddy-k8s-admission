@@ -471,7 +471,6 @@ func TestValidationPolicy_UnmarshalCaddyfile(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			policy := &ValidationPolicy{}
 			d := caddyfile.NewTestDispenser(testCase.input)
-			d.Next() // advance to the directive name
 
 			err := policy.UnmarshalCaddyfile(d)
 
@@ -1460,7 +1459,6 @@ func TestJSONPatchController_UnmarshalCaddyfile_Enhanced(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			controller := &JSONPatcher{}
 			d := caddyfile.NewTestDispenser(testCase.input)
-			d.Next() // advance to the directive name
 
 			err := controller.UnmarshalCaddyfile(d)
 
