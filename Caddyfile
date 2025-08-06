@@ -19,6 +19,15 @@ localhost {
     	}
 	}
 
+	# Deny CREATE operations with custom message
+	route /deny/create/message {
+		k8s_admission cel_policy {
+			expression "operation == 'CREATE'"
+			action deny
+			message "'CREATE operations are not allowed for ' + (has(object.kind) ? object.kind : 'unknown') + ' resources'"
+		}
+	}
+
 	# Single JSON patch - adds a single label
 	route /patch {
 		k8s_admission json_patch {

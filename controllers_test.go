@@ -296,12 +296,88 @@ func TestCelPolicy_Provision(t *testing.T) {
 	}
 }
 
+func TestCelPolicy_ProvisionWithMessage(t *testing.T) {
+	testCases := []struct {
+		name        string
+		expression  string
+		action      PolicyAction
+		message     string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "valid deny action with message",
+			expression:  "operation == 'CREATE'",
+			action:      PolicyActionDeny,
+			message:     "'Operation ' + operation + ' is not allowed'",
+			expectError: false,
+		},
+		{
+			name:        "deny action with complex message expression",
+			expression:  "true",
+			action:      PolicyActionDeny,
+			message:     "has(object.kind) ? 'Cannot create ' + object.kind + ' resources' : 'Cannot create unknown resource'",
+			expectError: false,
+		},
+		{
+			name:        "invalid: allow action with message",
+			expression:  "true",
+			action:      PolicyActionAllow,
+			message:     "'This should not be allowed'",
+			expectError: true,
+			errorMsg:    "message cannot be specified when action is 'allow'",
+		},
+		{
+			name:        "invalid message expression syntax",
+			expression:  "true",
+			action:      PolicyActionDeny,
+			message:     "operation +",
+			expectError: true,
+			errorMsg:    "compile CEL message expression",
+		},
+		{
+			name:        "message expression returning non-string",
+			expression:  "true",
+			action:      PolicyActionDeny,
+			message:     "true",
+			expectError: true,
+			errorMsg:    "message expression must return string",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			policy := &CelPolicy{
+				Expression: testCase.expression,
+				Action:     testCase.action,
+				Message:    testCase.message,
+			}
+
+			err := policy.Provision(caddy.Context{})
+
+			if testCase.expectError {
+				assert.Error(t, err)
+				if testCase.errorMsg != "" {
+					assert.Contains(t, err.Error(), testCase.errorMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, policy.program)
+				if testCase.message != "" {
+					assert.NotNil(t, policy.messageProgram)
+				}
+			}
+		})
+	}
+}
+
 func TestCelPolicy_UnmarshalCaddyfile(t *testing.T) {
 	testCases := []struct {
 		name           string
 		input          string
 		expectedExpr   string
 		expectedAction PolicyAction
+		expectedMsg    string
 		expectError    bool
 		expectedErrMsg string
 	}{
@@ -323,6 +399,18 @@ func TestCelPolicy_UnmarshalCaddyfile(t *testing.T) {
 			}`,
 			expectedExpr:   "operation == 'DELETE'",
 			expectedAction: PolicyActionDeny,
+			expectError:    false,
+		},
+		{
+			name: "valid policy with message",
+			input: `cel_policy {
+				expression "operation == 'CREATE'"
+				action deny
+				message "'Operation ' + operation + ' is not allowed'"
+			}`,
+			expectedExpr:   "operation == 'CREATE'",
+			expectedAction: PolicyActionDeny,
+			expectedMsg:    "'Operation ' + operation + ' is not allowed'",
 			expectError:    false,
 		},
 		{
@@ -374,6 +462,9 @@ func TestCelPolicy_UnmarshalCaddyfile(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, testCase.expectedExpr, policy.Expression)
 				assert.Equal(t, testCase.expectedAction, policy.Action)
+				if testCase.expectedMsg != "" {
+					assert.Equal(t, testCase.expectedMsg, policy.Message)
+				}
 			}
 		})
 	}
@@ -585,6 +676,104 @@ func TestCelPolicy_Admit(t *testing.T) {
 			require.NotNil(t, response)
 			assert.Equal(t, types.UID(uid), response.UID)
 			assert.Equal(t, testCase.expectAllow, response.Allowed)
+		})
+	}
+}
+
+func TestCelPolicy_AdmitWithMessage(t *testing.T) {
+	uid := "test-uid"
+
+	testCases := []struct {
+		name        string
+		expression  string
+		action      PolicyAction
+		message     string
+		review      admissionv1.AdmissionReview
+		expectAllow bool
+		expectError bool
+		expectedMsg string
+	}{
+		{
+			name:       "deny action with message - policy matches",
+			expression: "operation == 'CREATE'",
+			action:     PolicyActionDeny,
+			message:    "'CREATE operations are not allowed for ' + (has(object.kind) ? object.kind : 'unknown') + ' resources'",
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+					Object: runtime.RawExtension{
+						Raw: []byte(`{"kind": "Pod", "metadata": {"name": "test-pod"}}`),
+					},
+				},
+			},
+			expectAllow: false,
+			expectError: false,
+			expectedMsg: "CREATE operations are not allowed for Pod resources",
+		},
+		{
+			name:       "deny action with message - policy doesn't match",
+			expression: "operation == 'DELETE'",
+			action:     PolicyActionDeny,
+			message:    "'DELETE operations are not allowed'",
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+				},
+			},
+			expectAllow: true, // policy doesn't match, so allow
+			expectError: false,
+			expectedMsg: "", // no message when allowed
+		},
+		{
+			name:       "deny action with complex message expression",
+			expression: "true",
+			action:     PolicyActionDeny,
+			message:    "name != '' ? 'Resource ' + name + ' is not allowed' : 'Unnamed resource is not allowed'",
+			review: admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					UID:       types.UID(uid),
+					Operation: admissionv1.Create,
+					Name:      "test-resource",
+				},
+			},
+			expectAllow: false,
+			expectError: false,
+			expectedMsg: "Resource test-resource is not allowed",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			policy := &CelPolicy{
+				Expression: testCase.expression,
+				Action:     testCase.action,
+				Message:    testCase.message,
+			}
+
+			// Provision the policy
+			err := policy.Provision(caddy.Context{})
+			require.NoError(t, err)
+
+			// Call Admit
+			response, err := policy.Admit(context.Background(), testCase.review)
+
+			if testCase.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, response)
+				assert.Equal(t, testCase.review.Request.UID, response.UID)
+				assert.Equal(t, testCase.expectAllow, response.Allowed)
+
+				if testCase.expectedMsg != "" {
+					require.NotNil(t, response.Result, "Expected result with message")
+					assert.Equal(t, testCase.expectedMsg, response.Result.Message)
+				} else {
+					assert.Nil(t, response.Result, "Expected no result when no message")
+				}
+			}
 		})
 	}
 }

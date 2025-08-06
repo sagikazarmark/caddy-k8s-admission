@@ -92,6 +92,54 @@ func TestCaddyfileIntegration(t *testing.T) {
 		assert.Equal(t, updateReview.Request.UID, updateResp.Response.UID, "UID mismatch")
 	})
 
+	t.Run("cel_policy_with_message", func(t *testing.T) {
+		// Test CREATE operation with custom message - should be denied by CEL policy with custom message
+		createReview := createTestAdmissionReview(t, "CREATE", map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Pod",
+			"metadata": map[string]any{
+				"name":      "test-pod",
+				"namespace": "default",
+			},
+		})
+		createResp := sendAdmissionRequest(t, tester, "/deny/create/message", createReview)
+
+		assert.False(
+			t,
+			createResp.Response.Allowed,
+			"CREATE operations should be denied by CEL policy",
+		)
+		assert.Equal(t, createReview.Request.UID, createResp.Response.UID, "UID mismatch")
+
+		// Check that custom message is present
+		require.NotNil(t, createResp.Response.Result, "Expected result with custom message")
+		assert.Contains(
+			t,
+			createResp.Response.Result.Message,
+			"CREATE operations are not allowed for Pod resources",
+			"Expected custom denial message",
+		)
+
+		// Test UPDATE operation - should be allowed by CEL policy (no message should be present)
+		updateReview := createTestAdmissionReview(t, "UPDATE", map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Pod",
+			"metadata": map[string]any{
+				"name":      "test-pod",
+				"namespace": "default",
+			},
+		})
+		updateResp := sendAdmissionRequest(t, tester, "/deny/create/message", updateReview)
+
+		assert.True(
+			t,
+			updateResp.Response.Allowed,
+			"UPDATE operations should be allowed by CEL policy",
+		)
+		assert.Equal(t, updateReview.Request.UID, updateResp.Response.UID, "UID mismatch")
+		assert.Nil(t, updateResp.Response.Result, "Expected no result for allowed operations")
+	})
+
 	t.Run("json_patch", func(t *testing.T) {
 		review := createTestAdmissionReview(t, "CREATE", map[string]any{
 			"apiVersion": "v1",

@@ -10,6 +10,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/google/cel-go/cel"
 	admissionv1 "k8s.io/api/admission/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -100,7 +101,12 @@ type CelPolicy struct {
 	// Action is the action to take when the expression matches (allow or deny).
 	Action PolicyAction `json:"action,omitempty"`
 
-	program cel.Program
+	// Message is an optional CEL expression that returns a string message.
+	// Only valid when Action is "deny". The message will be included in the admission response.
+	Message string `json:"message,omitempty"`
+
+	program        cel.Program
+	messageProgram cel.Program
 }
 
 // CaddyModule returns the Caddy module information.
@@ -113,6 +119,11 @@ func (CelPolicy) CaddyModule() caddy.ModuleInfo {
 
 // Provision sets up the CEL policy.
 func (vp *CelPolicy) Provision(_ caddy.Context) error {
+	// Validate configuration
+	if vp.Action == PolicyActionAllow && vp.Message != "" {
+		return fmt.Errorf("message cannot be specified when action is 'allow'")
+	}
+
 	env, err := cel.NewEnv(
 		cel.Variable("name", cel.StringType),                                // optional
 		cel.Variable("requestNamespace", cel.StringType),                    // optional
@@ -139,6 +150,25 @@ func (vp *CelPolicy) Provision(_ caddy.Context) error {
 	}
 
 	vp.program = program
+
+	// Compile message expression if provided
+	if vp.Message != "" {
+		messageAst, iss := env.Compile(vp.Message)
+		if iss.Err() != nil {
+			return fmt.Errorf("compile CEL message expression: %w", iss.Err())
+		}
+
+		if !messageAst.OutputType().IsEquivalentType(cel.StringType) {
+			return fmt.Errorf("message expression must return string, got %v", messageAst.OutputType())
+		}
+
+		messageProgram, err := env.Program(messageAst)
+		if err != nil {
+			return fmt.Errorf("generating CEL message program: %w", err)
+		}
+
+		vp.messageProgram = messageProgram
+	}
 
 	return nil
 }
@@ -167,6 +197,11 @@ func (vp *CelPolicy) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			default:
 				return d.Errf("invalid action '%s', must be 'allow' or 'deny'", action)
 			}
+		case "message":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			vp.Message = d.Val()
 		default:
 			return d.Errf("unknown directive: %s", d.Val())
 		}
@@ -230,10 +265,29 @@ func (vp CelPolicy) Admit(
 	// - policy doesn't match
 	allowed := (policyMatches && vp.Action == PolicyActionAllow) || !policyMatches
 
-	return &admissionv1.AdmissionResponse{
+	response := &admissionv1.AdmissionResponse{
 		UID:     review.Request.UID,
 		Allowed: allowed,
-	}, nil
+	}
+
+	// If the request is denied and we have a message expression, evaluate it
+	if !allowed && vp.messageProgram != nil {
+		messageResult, _, err := vp.messageProgram.ContextEval(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("evaluating CEL message program: %w", err)
+		}
+
+		if messageResult.Type() != cel.StringType {
+			return nil, fmt.Errorf("unexpected non-string message result of type %T", messageResult.Value())
+		}
+
+		message := messageResult.Value().(string)
+		response.Result = &metav1.Status{
+			Message: message,
+		}
+	}
+
+	return response, nil
 }
 
 // Interface guards
