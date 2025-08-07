@@ -632,7 +632,9 @@ func TestValidation_Admit(t *testing.T) {
 					UID:       types.UID(uid),
 					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
-						Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`),
+						Raw: []byte(
+							`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`,
+						),
 					},
 				},
 			},
@@ -646,7 +648,9 @@ func TestValidation_Admit(t *testing.T) {
 					UID:       types.UID(uid),
 					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
-						Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`),
+						Raw: []byte(
+							`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`,
+						),
 					},
 				},
 			},
@@ -780,7 +784,9 @@ func TestValidation_AdmitWithMessage(t *testing.T) {
 					UID:       types.UID(uid),
 					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
-						Raw: []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`),
+						Raw: []byte(
+							`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod"}}`,
+						),
 					},
 				},
 			},

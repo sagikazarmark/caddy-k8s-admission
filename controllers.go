@@ -187,7 +187,10 @@ func (v *Validation) Provision(_ caddy.Context) error {
 		}
 
 		if !messageAst.OutputType().IsEquivalentType(cel.StringType) {
-			return fmt.Errorf("message expression must return string, got %v", messageAst.OutputType())
+			return fmt.Errorf(
+				"message expression must return string, got %v",
+				messageAst.OutputType(),
+			)
 		}
 
 		messageProgram, err := env.Program(messageAst)
@@ -247,7 +250,10 @@ func (v *Validation) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			case "RequestEntityTooLarge":
 				v.Reason = ValidationReasonRequestEntityTooLarge
 			default:
-				return d.Errf("invalid reason '%s', must be one of: Unauthorized, Forbidden, Invalid, RequestEntityTooLarge", reason)
+				return d.Errf(
+					"invalid reason '%s', must be one of: Unauthorized, Forbidden, Invalid, RequestEntityTooLarge",
+					reason,
+				)
 			}
 		default:
 			return d.Errf("unknown directive: %s", d.Val())
@@ -344,7 +350,10 @@ func (v Validation) Admit(
 			}
 
 			if messageResult.Type() != cel.StringType {
-				return nil, fmt.Errorf("unexpected non-string message result of type %T", messageResult.Value())
+				return nil, fmt.Errorf(
+					"unexpected non-string message result of type %T",
+					messageResult.Value(),
+				)
 			}
 
 			message = messageResult.Value().(string)
