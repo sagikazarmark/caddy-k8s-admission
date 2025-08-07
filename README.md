@@ -27,13 +27,12 @@ example.com {
 }
 ```
 
-### CEL Policy
+### Validation
 
 ```caddyfile
 example.com {
-    k8s_admission cel_policy {
-        expression "requestNamespace != 'kube-system'"
-        action deny
+    k8s_admission validation {
+        expression "requestNamespace == 'kube-system'"
     }
 }
 ```
@@ -75,27 +74,39 @@ A simple controller that always denies admission requests. Useful for testing or
 k8s_admission always_deny
 ```
 
-### `cel_policy`
+### `validation`
 
-Validates resources using CEL (Common Expression Language) expressions and takes configurable actions.
+Validates resources using CEL (Common Expression Language) expressions. If the expression returns `false`, the request is denied.
 
 ```caddyfile
 # Deny pods in the kube-system namespace
-k8s_admission cel_policy {
-    expression "requestNamespace == 'kube-system'"
-    action deny
+k8s_admission validation {
+    expression "requestNamespace != 'kube-system'"
 }
 
 # Allow only pods with specific naming convention
-k8s_admission cel_policy {
+k8s_admission validation {
     expression "name.startsWith('prod-')"
-    action allow
 }
 
 # Complex validation with multiple conditions
-k8s_admission cel_policy {
-    expression "operation == 'CREATE' && requestNamespace == 'production' && has(object.metadata) && object.metadata.name.startsWith('critical-')"
-    action deny
+k8s_admission validation {
+    expression "!(operation == 'CREATE' && requestNamespace == 'production' && has(object.metadata) && object.metadata.name.startsWith('critical-'))"
+}
+
+# Validation with custom message and reason
+k8s_admission validation {
+    name "security-policy"
+    expression "requestNamespace != 'kube-system'"
+    message "kube-system namespace is protected"
+    reason Forbidden
+}
+
+# Validation with dynamic message expression
+k8s_admission validation {
+    expression "operation != 'DELETE'"
+    message_expression "'Cannot delete ' + object.kind + ' resources in ' + requestNamespace"
+    reason Unauthorized
 }
 ```
 
@@ -105,10 +116,14 @@ k8s_admission cel_policy {
 - `operation` - The admission operation (CREATE, UPDATE, DELETE)
 - `object` - The current resource object (map)
 - `oldObject` - The previous resource object for UPDATE operations (map)
+- `policyName` - The validation name (string)
 
-**Actions:**
-- `allow` - Allow the request when the expression matches
-- `deny` - Deny the request when the expression matches
+**Configuration Options:**
+- `name` - Optional name for the validation (can be referenced as `policyName` in expressions)
+- `expression` - CEL expression that must return `true` for the request to be allowed
+- `message` - Static message to include when the request is denied
+- `message_expression` - CEL expression that returns a dynamic message (takes precedence over `message`)
+- `reason` - Reason for denial: `Unauthorized`, `Forbidden`, `Invalid` (default), `RequestEntityTooLarge`
 
 ### `json_patch`
 
@@ -248,9 +263,9 @@ Here's a comprehensive example showing multiple controllers working together:
 
     # Validation endpoint - deny pods in kube-system
     route /validate {
-        k8s_admission cel_policy {
-            expression "requestNamespace == 'kube-system'"
-            action deny
+        k8s_admission validation {
+            expression "requestNamespace != 'kube-system'"
+            reason Forbidden
         }
     }
 

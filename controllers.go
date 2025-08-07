@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -17,7 +18,7 @@ import (
 func init() {
 	caddy.RegisterModule(AlwaysAllow{})
 	caddy.RegisterModule(AlwaysDeny{})
-	caddy.RegisterModule(CelPolicy{})
+	caddy.RegisterModule(Validation{})
 	caddy.RegisterModule(JSONPatch{})
 	caddy.RegisterModule(JSONPatches{})
 }
@@ -80,52 +81,74 @@ func (a AlwaysDeny) Admit(
 // Interface guard
 var _ Controller = (*AlwaysDeny)(nil)
 
-// PolicyAction represents the action to take when a validation policy is matched.
-type PolicyAction string
+// ValidationReason represents the reason for validation failure.
+type ValidationReason string
 
 const (
-	// PolicyActionAllow allows the request when the policy matches.
-	PolicyActionAllow PolicyAction = "allow"
+	// ValidationReasonUnauthorized indicates the request is unauthorized.
+	ValidationReasonUnauthorized ValidationReason = "Unauthorized"
 
-	// PolicyActionDeny denies the request when the policy matches.
-	PolicyActionDeny PolicyAction = "deny"
+	// ValidationReasonForbidden indicates the request is forbidden.
+	ValidationReasonForbidden ValidationReason = "Forbidden"
+
+	// ValidationReasonInvalid indicates the request is invalid.
+	ValidationReasonInvalid ValidationReason = "Invalid"
+
+	// ValidationReasonRequestEntityTooLarge indicates the request entity is too large.
+	ValidationReasonRequestEntityTooLarge ValidationReason = "RequestEntityTooLarge"
 )
 
-// CelPolicy is an admission webhook controller that validates resources using CEL expressions.
+// Validation is an admission webhook controller that validates resources using CEL expressions.
 //
-// It evaluates the provided expression against the resource and takes the specified action.
-type CelPolicy struct {
-	// Name is an optional name for the policy that can be referenced in CEL expressions as 'policyName'.
-	// If no message is specified and a request is denied, defaults to "Rejected by 'NAME' policy".
+// It evaluates the provided expression against the resource. If the expression returns false, the request is denied.
+type Validation struct {
+	// Name is an optional name for the validation that can be referenced in CEL expressions as 'policyName'.
+	// If no message or message_expression is specified and a request is denied, defaults to "Rejected by 'NAME' validation".
 	Name string `json:"name,omitempty"`
 
 	// Expression is the validation expression to evaluate against the resource.
+	// If the expression returns false, the request is denied.
 	Expression string `json:"expression,omitempty"`
 
-	// Action is the action to take when the expression matches (allow or deny).
-	Action PolicyAction `json:"action,omitempty"`
-
-	// Message is an optional CEL expression that returns a string message.
-	// Only valid when Action is "deny". The message will be included in the admission response.
+	// Message is a static message to include in the admission response when the request is denied.
 	Message string `json:"message,omitempty"`
+
+	// MessageExpression is a CEL expression that returns a string message.
+	// Takes precedence over Message if both are specified.
+	MessageExpression string `json:"message_expression,omitempty"`
+
+	// Reason is the reason for validation failure. Valid values: Unauthorized, Forbidden, Invalid, RequestEntityTooLarge.
+	// Defaults to Invalid.
+	Reason ValidationReason `json:"reason,omitempty"`
 
 	program        cel.Program
 	messageProgram cel.Program
 }
 
 // CaddyModule returns the Caddy module information.
-func (CelPolicy) CaddyModule() caddy.ModuleInfo {
+func (Validation) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "k8s.admission.cel_policy",
-		New: func() caddy.Module { return new(CelPolicy) },
+		ID:  "k8s.admission.validation",
+		New: func() caddy.Module { return new(Validation) },
 	}
 }
 
-// Provision sets up the CEL policy.
-func (vp *CelPolicy) Provision(_ caddy.Context) error {
-	// Validate configuration
-	if vp.Action == PolicyActionAllow && vp.Message != "" {
-		return fmt.Errorf("message cannot be specified when action is 'allow'")
+// Provision sets up the validation.
+func (v *Validation) Provision(_ caddy.Context) error {
+	// Set default reason if not specified
+	if v.Reason == "" {
+		v.Reason = ValidationReasonInvalid
+	}
+
+	// Validate reason
+	validReasons := map[ValidationReason]bool{
+		ValidationReasonUnauthorized:          true,
+		ValidationReasonForbidden:             true,
+		ValidationReasonInvalid:               true,
+		ValidationReasonRequestEntityTooLarge: true,
+	}
+	if !validReasons[v.Reason] {
+		return fmt.Errorf("invalid reason '%s'", v.Reason)
 	}
 
 	env, err := cel.NewEnv(
@@ -140,7 +163,7 @@ func (vp *CelPolicy) Provision(_ caddy.Context) error {
 		return fmt.Errorf("initializing CEL environment: %w", err)
 	}
 
-	ast, iss := env.Compile(vp.Expression)
+	ast, iss := env.Compile(v.Expression)
 	if iss.Err() != nil {
 		return fmt.Errorf("compile CEL expression: %w", iss.Err())
 	}
@@ -154,11 +177,11 @@ func (vp *CelPolicy) Provision(_ caddy.Context) error {
 		return fmt.Errorf("generating CEL program: %w", err)
 	}
 
-	vp.program = program
+	v.program = program
 
 	// Compile message expression if provided
-	if vp.Message != "" {
-		messageAst, iss := env.Compile(vp.Message)
+	if v.MessageExpression != "" {
+		messageAst, iss := env.Compile(v.MessageExpression)
 		if iss.Err() != nil {
 			return fmt.Errorf("compile CEL message expression: %w", iss.Err())
 		}
@@ -172,19 +195,19 @@ func (vp *CelPolicy) Provision(_ caddy.Context) error {
 			return fmt.Errorf("generating CEL message program: %w", err)
 		}
 
-		vp.messageProgram = messageProgram
+		v.messageProgram = messageProgram
 	}
 
 	return nil
 }
 
 // UnmarshalCaddyfile implements [caddyfile.Unmarshaler].
-func (vp *CelPolicy) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (v *Validation) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.Next()
 
-	// Check if there's an argument after the directive name (cel_policy NAME)
+	// Check if there's an argument after the directive name (validation NAME)
 	if d.NextArg() {
-		vp.Name = d.Val()
+		v.Name = d.Val()
 	}
 
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
@@ -193,30 +216,39 @@ func (vp *CelPolicy) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if !d.NextArg() {
 				return d.ArgErr()
 			}
-			vp.Name = d.Val()
+			v.Name = d.Val()
 		case "expression":
 			if !d.NextArg() {
 				return d.ArgErr()
 			}
-			vp.Expression = d.Val()
-		case "action":
-			if !d.NextArg() {
-				return d.ArgErr()
-			}
-			action := d.Val()
-			switch action {
-			case "allow":
-				vp.Action = PolicyActionAllow
-			case "deny":
-				vp.Action = PolicyActionDeny
-			default:
-				return d.Errf("invalid action '%s', must be 'allow' or 'deny'", action)
-			}
+			v.Expression = d.Val()
 		case "message":
 			if !d.NextArg() {
 				return d.ArgErr()
 			}
-			vp.Message = d.Val()
+			v.Message = d.Val()
+		case "message_expression":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			v.MessageExpression = d.Val()
+		case "reason":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			reason := d.Val()
+			switch reason {
+			case "Unauthorized":
+				v.Reason = ValidationReasonUnauthorized
+			case "Forbidden":
+				v.Reason = ValidationReasonForbidden
+			case "Invalid":
+				v.Reason = ValidationReasonInvalid
+			case "RequestEntityTooLarge":
+				v.Reason = ValidationReasonRequestEntityTooLarge
+			default:
+				return d.Errf("invalid reason '%s', must be one of: Unauthorized, Forbidden, Invalid, RequestEntityTooLarge", reason)
+			}
 		default:
 			return d.Errf("unknown directive: %s", d.Val())
 		}
@@ -225,10 +257,26 @@ func (vp *CelPolicy) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-// Admit processes an admission review and evaluates the CEL policy.
+// getReasonHTTPCode returns the appropriate HTTP status code for a validation reason.
+func getReasonHTTPCode(reason ValidationReason) int32 {
+	switch reason {
+	case ValidationReasonUnauthorized:
+		return http.StatusUnauthorized
+	case ValidationReasonForbidden:
+		return http.StatusForbidden
+	case ValidationReasonInvalid:
+		return http.StatusBadRequest
+	case ValidationReasonRequestEntityTooLarge:
+		return http.StatusRequestEntityTooLarge
+	default:
+		return http.StatusBadRequest
+	}
+}
+
+// Admit processes an admission review and evaluates the validation expression.
 //
 // Implements the [Controller] interface.
-func (vp CelPolicy) Admit(
+func (v Validation) Admit(
 	ctx context.Context,
 	review admissionv1.AdmissionReview,
 ) (*admissionv1.AdmissionResponse, error) {
@@ -244,7 +292,7 @@ func (vp CelPolicy) Admit(
 		input["requestNamespace"] = review.Request.Namespace
 	}
 
-	input["policyName"] = vp.Name
+	input["policyName"] = v.Name
 
 	if review.Request.Object.Raw != nil {
 		var obj unstructured.Unstructured
@@ -266,7 +314,7 @@ func (vp CelPolicy) Admit(
 		input["oldObject"] = obj.Object
 	}
 
-	result, _, err := vp.program.ContextEval(ctx, input)
+	result, _, err := v.program.ContextEval(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("evaluating CEL program: %w", err)
 	}
@@ -275,25 +323,22 @@ func (vp CelPolicy) Admit(
 		return nil, fmt.Errorf("unexpected non-bool result of type %T", result.Value())
 	}
 
-	policyMatches := result.Value().(bool)
-
-	// Allow if:
-	// - policy matches and action is allow
-	// - policy doesn't match
-	allowed := (policyMatches && vp.Action == PolicyActionAllow) || !policyMatches
+	// If expression returns false, deny the request
+	allowed := result.Value().(bool)
 
 	response := &admissionv1.AdmissionResponse{
 		UID:     review.Request.UID,
 		Allowed: allowed,
 	}
 
-	// If the request is denied, set up the status message
+	// If the request is denied, set up the status message and reason
 	if !allowed {
 		var message string
 
-		if vp.messageProgram != nil {
-			// Use custom message expression
-			messageResult, _, err := vp.messageProgram.ContextEval(ctx, input)
+		// Message priority: message_expression > message > default with name
+		if v.messageProgram != nil {
+			// Use message expression
+			messageResult, _, err := v.messageProgram.ContextEval(ctx, input)
 			if err != nil {
 				return nil, fmt.Errorf("evaluating CEL message program: %w", err)
 			}
@@ -303,16 +348,19 @@ func (vp CelPolicy) Admit(
 			}
 
 			message = messageResult.Value().(string)
-		} else if vp.Name != "" {
-			// Use default message with policy name
-			message = fmt.Sprintf("Rejected by '%s' policy", vp.Name)
+		} else if v.Message != "" {
+			// Use static message
+			message = v.Message
+		} else if v.Name != "" {
+			// Use default message with validation name
+			message = fmt.Sprintf("Rejected by '%s' validation", v.Name)
 		}
 
-		// Only set status if we have a message
-		if message != "" {
-			response.Result = &metav1.Status{
-				Message: message,
-			}
+		// Set status with reason and message
+		response.Result = &metav1.Status{
+			Code:    getReasonHTTPCode(v.Reason),
+			Reason:  metav1.StatusReason(v.Reason),
+			Message: message,
 		}
 	}
 
@@ -321,9 +369,9 @@ func (vp CelPolicy) Admit(
 
 // Interface guards
 var (
-	_ Controller            = (*CelPolicy)(nil)
-	_ caddy.Provisioner     = (*CelPolicy)(nil)
-	_ caddyfile.Unmarshaler = (*CelPolicy)(nil)
+	_ Controller            = (*Validation)(nil)
+	_ caddy.Provisioner     = (*Validation)(nil)
+	_ caddyfile.Unmarshaler = (*Validation)(nil)
 )
 
 // JSONPatch is an admission webhook controller that applies a single JSON Patch operation to resources.
