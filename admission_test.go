@@ -86,7 +86,7 @@ func TestWebhook_Provision(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			handler := &Webhook{
-				ControllerRaw: testCase.handlerRaw,
+				HandlerRaw: testCase.handlerRaw,
 			}
 
 			// Create a basic Caddy context - we expect provision to fail
@@ -125,7 +125,7 @@ func TestWebhook_Validate(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			h := Webhook{
-				Controller: testCase.handler,
+				Handler: testCase.handler,
 			}
 
 			err := h.Validate()
@@ -250,8 +250,8 @@ func TestWebhook_ServeHTTP(t *testing.T) {
 
 			// Create the main handler
 			handler := &Webhook{
-				Controller: mockHandler,
-				logger:     caddy.Log(), // Initialize logger for tests
+				Handler: mockHandler,
+				logger:  caddy.Log(), // Initialize logger for tests
 			}
 
 			// Create request
