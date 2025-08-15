@@ -36,11 +36,11 @@ type Controller interface {
 //
 // It acts as a host module that loads guest admission controller modules.
 type Webhook struct {
-	// ControllerRaw holds the raw JSON configuration for the admission controller.
-	ControllerRaw json.RawMessage `json:"controller,omitempty" caddy:"namespace=k8s.admission inline_key=controller_type"`
+	// HandlerRaw holds the raw JSON configuration for the admission controller.
+	HandlerRaw json.RawMessage `json:"handler,omitempty" caddy:"namespace=k8s.admission inline_key=handler_type"`
 
-	// Controller is the loaded admission controller.
-	Controller Controller `json:"-"`
+	// Handler is the loaded admission controller.
+	Handler Controller `json:"-"`
 
 	logger *zap.Logger
 }
@@ -57,23 +57,23 @@ func (Webhook) CaddyModule() caddy.ModuleInfo {
 func (wh *Webhook) Provision(ctx caddy.Context) error {
 	wh.logger = ctx.Logger()
 
-	if wh.ControllerRaw == nil {
+	if wh.HandlerRaw == nil {
 		return fmt.Errorf("admission controller is required")
 	}
 
-	val, err := ctx.LoadModule(wh, "ControllerRaw")
+	val, err := ctx.LoadModule(wh, "HandlerRaw")
 	if err != nil {
 		return fmt.Errorf("loading admission controller: %w", err)
 	}
 
-	wh.Controller = val.(Controller)
+	wh.Handler = val.(Controller)
 
 	return nil
 }
 
 // Validate validates the configuration.
 func (wh Webhook) Validate() error {
-	if wh.Controller == nil {
+	if wh.Handler == nil {
 		return fmt.Errorf("no admission controller configured")
 	}
 
@@ -113,7 +113,7 @@ func (wh Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.
 	)
 
 	// Process the admission review with the configured controller
-	response, err := wh.Controller.Admit(r.Context(), review)
+	response, err := wh.Handler.Admit(r.Context(), review)
 	if err != nil {
 		logger.Error("admission controller failed", zap.Error(err))
 
@@ -200,9 +200,9 @@ func (wh *Webhook) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	}
 
 	// Store the controller configuration
-	wh.ControllerRaw = caddyconfig.JSONModuleObject(
+	wh.HandlerRaw = caddyconfig.JSONModuleObject(
 		controller,
-		"controller_type",
+		"handler_type",
 		controllerType,
 		nil,
 	)
