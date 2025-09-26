@@ -1,7 +1,7 @@
 package main
 
 const (
-	defaultGoVersion = "1.24.2"
+	defaultGoVersion = "1.25.0"
 
-	golangciLintVersion = "v2.3.1"
+	golangciLintVersion = "v2.5.0"
 )

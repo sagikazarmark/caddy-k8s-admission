@@ -25,7 +25,7 @@ func New(
 	}
 }
 
-var supportedGoVersions = []string{"1.24"}
+var supportedGoVersions = []string{"1.25"}
 
 func (m *CaddyKubeAdmission) Check(ctx context.Context) error {
 	p := pipeline.New(ctx)
