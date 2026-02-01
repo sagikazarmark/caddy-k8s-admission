@@ -1,40 +1,41 @@
 {
   "name": "caddy-kube-admission",
-  "engineVersion": "v0.18.19",
+  "engineVersion": "v0.19.10",
   "sdk": {
     "source": "go"
   },
   "dependencies": [
     {
       "name": "archivist",
-      "source": "github.com/sagikazarmark/daggerverse/archivist",
+      "source": "github.com/sagikazarmark/daggerverse/archivist@main",
       "pin": "ceffda4aebd349a24fc00e591b4ed9b801535b65"
     },
     {
       "name": "checksum",
-      "source": "github.com/sagikazarmark/daggerverse/checksum",
+      "source": "github.com/sagikazarmark/daggerverse/checksum@main",
       "pin": "ceffda4aebd349a24fc00e591b4ed9b801535b65"
     },
     {
       "name": "gh",
-      "source": "github.com/sagikazarmark/daggerverse/gh",
+      "source": "github.com/sagikazarmark/daggerverse/gh@main",
       "pin": "ceffda4aebd349a24fc00e591b4ed9b801535b65"
     },
     {
       "name": "go",
-      "source": "github.com/sagikazarmark/daggerverse/go",
+      "source": "github.com/sagikazarmark/daggerverse/go@main",
       "pin": "ceffda4aebd349a24fc00e591b4ed9b801535b65"
     },
     {
       "name": "golangci-lint",
-      "source": "github.com/sagikazarmark/daggerverse/golangci-lint",
+      "source": "github.com/sagikazarmark/daggerverse/golangci-lint@main",
       "pin": "ceffda4aebd349a24fc00e591b4ed9b801535b65"
     },
     {
       "name": "xcaddy",
-      "source": "github.com/sagikazarmark/daggerverse/xcaddy",
+      "source": "github.com/sagikazarmark/daggerverse/xcaddy@main",
       "pin": "ceffda4aebd349a24fc00e591b4ed9b801535b65"
     }
   ],
-  "source": ".dagger"
+  "source": ".dagger",
+  "disableDefaultFunctionCaching": true
 }
